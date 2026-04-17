@@ -162,7 +162,7 @@ export default function App() {
   const [isMagicLoading, setIsMagicLoading] = useState(false);
   const magicUploadRef = useRef(null);
 
-  const apiKey = "AQ.aB8RN6Keg9zsJXkbAZRVnpRVs6ndIEN8WJzISWpb_zK1u1cseg";
+  const apiKey = "AQ.Ab8RN6JJciNvbyACX9j-GOiLQWC_E2eE6uRBRMVfTuDmygJ4wQ";
 
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
