@@ -89,9 +89,9 @@ function App() {
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- HIER ZIT DE OPLOSSING: GEMINI 2.5 FLASH (Nieuwste stabiele versie) ---
+  // --- HIER IS HET VERNIEUWDE, LIGHTWEIGHT MODEL DAT NIET OVERBELAST RAAKT ---
   const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
-  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
 
   const activeProject = projects.find((p) => p.id === selectedProjectId);
 
