@@ -912,7 +912,7 @@ export default function App() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <button
-              onClick={() => cameraInputRef.current.click()}
+          onClick={() => cameraInputRef.current?.click()}
               className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"
             >
               <Camera
@@ -924,7 +924,7 @@ export default function App() {
               </span>
             </button>
             <button
-              onClick={() => fileInputRef.current.click()}
+              onClick={() => fileInputRef.current?.click()}
               className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"
             >
               <Upload
