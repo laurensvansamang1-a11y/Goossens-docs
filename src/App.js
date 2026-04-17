@@ -1457,26 +1457,27 @@ function App() {
             </div>
           </div>
         </div>
-      )}
-<input 
-  type="file" 
-  accept="image/*" 
-  capture="environment" 
-  ref={cameraInputRef} 
-  style={{ display: 'none' }} 
-  onChange={handleFileUpload} 
-/>
+       )}
 
-<input 
-  type="file" 
-  accept="image/*" 
-  ref={fileInputRef} 
-  style={{ display: 'none' }} 
-  onChange={handleFileUpload} 
-/>
-{renderNotificationToast()}
-    </div>
-  );
+    <input 
+      type="file" 
+      accept="image/*" 
+      capture="environment" 
+      ref={cameraInputRef} 
+      style={{ display: 'none' }} 
+      onChange={handleMagicUpload} 
+    />
+
+    <input 
+      type="file" 
+      accept="image/*" 
+      ref={fileInputRef} 
+      style={{ display: 'none' }} 
+      onChange={handleMagicUpload} 
+    />
+ {renderNotificationToast()}
+ </div>
+);
 }
-
-export default App;
+ 
+export default App;       
