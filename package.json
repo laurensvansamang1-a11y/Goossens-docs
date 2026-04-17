@@ -10,8 +10,7 @@
     "react-scripts": "^5.0.0",
     "lucide-react": "1.8.0"
   },
-  "devDependencies": {
-    "ajv": "^6.12.6",
+  "devDependencies":
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
     "loader-utils": "3.2.1",
