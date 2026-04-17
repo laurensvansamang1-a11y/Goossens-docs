@@ -38,8 +38,7 @@ const loadFromDB = async () => {
 // --- SLIMME AI MOTOR (MET VASTE API KEY) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
   // Jouw exacte sleutel uit screenshot 5 is hier vastgezet. Netlify is niet meer nodig.
-  const apiKey = "AQ.Ab8RN6JmXGQtku9zJt2HUmiayQeXng4gaiK34Vl7vTH6iKuAsA";
-  
+  const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
   if (!apiKey) throw new Error("API Sleutel ontbreekt.");
 
   const isImage = !!base64Data;
