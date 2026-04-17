@@ -35,6 +35,7 @@ import {
   Utensils,
   Wrench,
   Palette,
+  Trash2, // <--- Het nieuwe prullenbak icoontje is hier toegevoegd
 } from "lucide-react";
 
 // --- INITIAL STATE ---
@@ -315,6 +316,21 @@ function App() {
       reader.readAsDataURL(file);
     }
     event.target.value = null;
+  };
+
+  // --- FOTO VERWIJDEREN FUNCTIE ---
+  const handleDeletePhoto = async (photoId) => {
+    if (!window.confirm("Weet je zeker dat je deze foto wilt verwijderen?")) return;
+
+    const updated = projectsRef.current.map((p) =>
+      p.id === activeProject.id
+        ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) }
+        : p
+    );
+
+    await saveToDB(updated);
+    setProjects(updated);
+    showNotification("🗑️ Foto succesvol verwijderd!");
   };
 
   const handleAddProject = async (e) => {
@@ -912,7 +928,7 @@ function App() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <button
-          onClick={() => cameraInputRef.current?.click()}
+              onClick={() => cameraInputRef.current?.click()}
               className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"
             >
               <Camera
@@ -1100,6 +1116,19 @@ function App() {
                         className="w-full h-full object-cover"
                         alt="Werffoto"
                       />
+                      
+                      {/* PRULLENBAK KNOP */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePhoto(ph.id);
+                        }}
+                        className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm"
+                        title="Verwijder foto"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+
                       <div className="absolute top-2 right-2">
                         {ph.syncStatus === "synced" ? (
                           <Cloud
@@ -1270,6 +1299,7 @@ function App() {
                     <img
                       src={m.image}
                       className="rounded-lg mb-2 border border-black/10"
+                      alt="Chat bijlage"
                     />
                   )}
                   <p className="whitespace-pre-wrap leading-relaxed">
@@ -1289,6 +1319,7 @@ function App() {
                   <img
                     src={chatImage}
                     className="w-full h-full object-cover rounded"
+                    alt="Chat preview"
                   />
                   <button
                     onClick={() => setChatImage(null)}
@@ -1457,25 +1488,26 @@ function App() {
             </div>
           </div>
         </div>
-       )}
-<input 
-      type="file" 
-      accept="image/*" 
-      capture="environment" 
-      ref={cameraInputRef} 
-      style={{ display: 'none' }} 
-      onChange={handlePhotoCapture} 
-    />
+      )}
+      
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment" 
+        ref={cameraInputRef} 
+        style={{ display: 'none' }} 
+        onChange={handlePhotoCapture} 
+      />
 
-    <input 
-      type="file" 
-      accept="image/*" 
-      ref={fileInputRef} 
-      style={{ display: 'none' }} 
-      onChange={handlePhotoCapture} 
-    />
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={fileInputRef} 
+        style={{ display: 'none' }} 
+        onChange={handlePhotoCapture} 
+      />
 
-    {renderNotificationToast()}
+      {renderNotificationToast()}
     </div>
   );
 }
