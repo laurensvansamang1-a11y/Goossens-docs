@@ -923,4 +923,18 @@ function App() {
             </div>
 
             {/* WERKJTIJDEN (Enkel zichtbaar bij Service nodig) */}
-            {activeProject
+            {activeProject.status === "Service nodig" && (
+              <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in">
+                <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2">
+                  <Clock size={16} /> Geschatte Resterende Werkuren (Service)
+                </label>
+                <select
+                  className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium"
+                  value={activeProject.workHours || ""}
+                  onChange={(e) => handleUpdateWorkHours(e.target.value)}
+                >
+                  <option value="" disabled>
+                    Selecteer aantal uren...
+                  </option>
+                  <option value="0.5 uur">0.5 uur</option>
+                  <option value="1 uur">1 uur</option
