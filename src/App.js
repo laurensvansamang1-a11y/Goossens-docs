@@ -35,7 +35,7 @@ import {
   Utensils,
   Wrench,
   Palette,
-  Trash2, // <--- Het nieuwe prullenbak icoontje is hier toegevoegd
+  Trash2,
 } from "lucide-react";
 
 // --- INITIAL STATE ---
@@ -400,8 +400,9 @@ function App() {
       Voorbeeld output:
       [{"id": "123", "name": "Janssens", "date": "2026-05-01", "duration": "2 dagen"}]`;
 
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
+       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -420,12 +421,10 @@ function App() {
       );
 
       let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-      aiText = aiText
-        .replace(/```json/gi, "")
-        .replace(/```/gi, "")
-        .trim();
-      if (!aiText) aiText = "[]";
-
+      
+      // Robuustere JSON opschoning
+      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
+      
       let extractedData = [];
       try {
         extractedData = JSON.parse(aiText);
@@ -443,8 +442,7 @@ function App() {
 
       if (Array.isArray(extractedData) && extractedData.length > 0) {
         const newProjects = extractedData.map((proj) => {
-          const projectDate =
-            proj.date || new Date().toISOString().split("T")[0];
+          const projectDate = proj.date || new Date().toISOString().split("T")[0];
           return {
             id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`,
             name: proj.name || "Onbekende Klant",
@@ -469,7 +467,6 @@ function App() {
         );
 
         await saveToDB(sorted);
-
         setProjects(sorted);
         showNotification(
           `✨ Succes: ${newProjects.length} projecten toegevoegd en direct opgeslagen!`
@@ -479,7 +476,7 @@ function App() {
       }
     } catch (error) {
       console.error(error);
-      showNotification("Fout bij het uitlezen van de planning.");
+      showNotification("Fout bij het uitlezen van de planning. Controleer je internet of API sleutel.");
     } finally {
       setIsMagicLoading(false);
       event.target.value = null;
@@ -520,8 +517,9 @@ function App() {
     setReportConfig({ isOpen: true, type, title });
 
     try {
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -548,8 +546,9 @@ function App() {
       const prompt =
         "Analyseer deze foto van een keukeninstallatie. Beschrijf in 1 of 2 korte zinnen wat er te zien is (bijv. 'Kasten en werkblad geplaatst'). Noteer ook expliciet of je zichtbare gebreken, achtergebleven gereedschap, of onafgewerkte delen ziet. Antwoord uitsluitend in het Nederlands.";
 
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -638,8 +637,9 @@ function App() {
         apiBody = { contents: [{ parts: [{ text: prompt }] }] };
       }
 
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -670,8 +670,9 @@ function App() {
       Tekst:
       "${generatedReport}"`;
 
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -702,8 +703,9 @@ function App() {
       Gebruik ALTIJD duidelijke opsommingstekens (bullet points) voor de actiepunten of servicepunten.
       Zorg dat het document direct leesbaar is voor de klantenservice en planning. Schrijf in foutloos Nederlands en voeg geen onnodige introducties toe.`;
 
+      // FIX: Model aangepast naar het werkende gemini-1.5-flash
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
