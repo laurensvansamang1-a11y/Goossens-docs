@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2 } from "lucide-react";
 
+// --- INDEXEDDB SETUP (VOOR OFFLINE OPSLAG) ---
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
 
@@ -35,24 +36,73 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SLIMME VERTRAGING OM GOOGLE'S "HIGH DEMAND" OP TE VANGEN ---
-const fetchWithRetry = async (url, options, retries = 4) => {
-  const delays = [2000, 4000, 6000, 8000]; // Wacht langer bij drukte
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error?.message || `HTTP Error ${response.status}`);
+// --- SLIMME AI MOTOR MET AUTO-FALLBACK & RETRY ---
+const executeAI = async (promptText, mimeType = null, base64Data = null) => {
+  const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new Error("API Sleutel ontbreekt in Netlify.");
+
+  const isImage = !!base64Data;
+  // De app probeert automatisch deze lijst af te gaan als een model "Not Found" is.
+  const modelsToTry = isImage 
+    ? ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-1.5-pro-latest"]
+    : ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"];
+
+  let apiBody;
+  if (isImage) {
+    apiBody = {
+      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }]
+    };
+  } else {
+    apiBody = { contents: [{ parts: [{ text: promptText }] }] };
+  }
+
+  let lastError = null;
+
+  for (const model of modelsToTry) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    // Max 2 pogingen per model (om "High Demand" drukte op te vangen)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(apiBody)
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          const errMsg = data.error?.message || "Onbekende API fout";
+          if (response.status === 404) throw new Error("MODEL_NOT_FOUND");
+          if (response.status === 503 || response.status === 429) throw new Error("HIGH_DEMAND");
+          throw new Error(errMsg);
+        }
+
+        const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!resultText) throw new Error("Geen tekst gegenereerd.");
+        return resultText; // Succes! We sturen het antwoord terug.
+
+      } catch (err) {
+        lastError = err;
+        if (err.message === "MODEL_NOT_FOUND") {
+          break; // Dit model bestaat niet voor deze sleutel. Stop en probeer het VOLGENDE model in de lijst.
+        }
+        if (err.message === "HIGH_DEMAND") {
+          await new Promise(r => setTimeout(r, 2000 * attempt)); // Wacht 2 of 4 seconden op de achtergrond.
+          continue; // Probeer hetzelfde model nog eens.
+        }
+        throw err; // Fatale fout (bijv. verkeerde API sleutel)
       }
-      return await response.json();
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      console.warn(`Poging ${i + 1} mislukt, we proberen het opnieuw...`);
-      await new Promise((r) => setTimeout(r, delays[i]));
     }
   }
+
+  // Als we hier komen, heeft geen enkel model gewerkt.
+  if (lastError?.message === "MODEL_NOT_FOUND") throw new Error("Geen enkel AI-model gevonden voor jouw API sleutel.");
+  if (lastError?.message === "HIGH_DEMAND") throw new Error("Google is momenteel zwaar overbelast. Probeer het over een minuutje nog eens.");
+  throw lastError;
 };
+
 
 function App() {
   const [projects, setProjects] = useState([]);
@@ -90,10 +140,6 @@ function App() {
   const magicUploadRef = useRef(null);
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
-
-  // --- DE ABSOLUTE STANDAARD MOTOR EN POORT ---
-  const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
-  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const activeProject = projects.find((p) => p.id === selectedProjectId);
 
@@ -204,10 +250,10 @@ function App() {
     showNotification("✨ Nieuwe projectmap handmatig aangemaakt en direct opgeslagen!");
   };
 
+  // --- HIER ROEPEN WE DE SLIMME AI MOTOR AAN ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
-    if (!apiKey) return showNotification("❌ API Sleutel ontbreekt of is leeg in Netlify.");
     setIsMagicLoading(true);
     showNotification("🕵️‍♂️ Planning wordt gelezen en gesorteerd...");
     try {
@@ -218,12 +264,11 @@ function App() {
         reader.readAsDataURL(file);
       });
       const base64Data = base64Url.split(",")[1];
+      const mimeType = file.type || "image/jpeg";
       const prompt = `Lees deze foto van een planning/document. Extraheer projecten. Retourneer UITSLUITEND een ruwe JSON array: [{"id": "dossiernummer", "name": "klantnaam", "date": "YYYY-MM-DD", "duration": "bijv 1 dag"}]`;
-      const data = await fetchWithRetry(API_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: file.type || "image/jpeg", data: base64Data } }] }] }),
-      });
-      let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+      
+      let aiText = await executeAI(prompt, mimeType, base64Data);
+      
       aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
       try { extractedData = JSON.parse(aiText); } catch (err) { const match = aiText.match(/\[[\s\S]*\]/); if (match) extractedData = JSON.parse(match[0]); }
@@ -234,10 +279,7 @@ function App() {
         setProjects(combined);
         showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`);
       } else { showNotification("Kon geen geldige projecten op de foto vinden."); }
-    } catch (error) { 
-      if (error.message.includes("high demand")) showNotification(`⏳ Google heeft het te druk. Probeer het over een minuutje opnieuw.`);
-      else showNotification(`❌ Fout AI: ${error.message}`); 
-    } finally { setIsMagicLoading(false); event.target.value = null; }
+    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsMagicLoading(false); event.target.value = null; }
   };
 
   const handleGenerateReport = async (type) => {
@@ -245,30 +287,24 @@ function App() {
     const promptText = type === "email" ? `Schrijf een professionele e-mail naar de klant (${activeProject.name}). Informeer ze over openstaande servicepunten en verzeker snelle afhandeling. Formatteer in het Nederlands.` : `Maak een beknopte actielijst voor binnendienst. Notities: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
     try {
-      const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }) });
-      setGeneratedReport(data.candidates?.[0]?.content?.parts?.[0]?.text || "Geen tekst gegenereerd.");
+      const text = await executeAI(promptText);
+      setGeneratedReport(text);
       setReportStatus("success");
-    } catch (error) { 
-      setGeneratedReport(error.message.includes("high demand") ? `⏳ Google AI is momenteel te druk (High Demand). Probeer het zo nog eens.` : `❌ Fout bij AI: ${error.message}`); 
-      setReportStatus("error"); 
-    }
+    } catch (error) { setGeneratedReport(`❌ Fout bij AI: ${error.message}`); setReportStatus("error"); }
   };
 
   const handleAnalyzePhoto = async (photoId, base64Url) => {
     setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: true }));
     try {
       const base64Data = base64Url.split(",")[1];
+      const mimeType = base64Url.split(";")[0].split(":")[1];
       const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer eventuele zichtbare gebreken of gereedschap. In het Nederlands.";
-      const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: base64Url.split(";")[0].split(":")[1], data: base64Data } }] }] }) });
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const text = await executeAI(prompt, mimeType, base64Data);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
       await saveToDB(updated);
       setProjects(updated);
       showNotification("✨ AI Analyse voltooid!");
-    } catch (error) { 
-      if (error.message.includes("high demand")) showNotification(`⏳ Google heeft het te druk. Probeer het straks opnieuw.`);
-      else showNotification(`❌ Fout AI: ${error.message}`); 
-    } finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
+    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
   };
 
   const handleChatImageUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setChatImage(reader.result); reader.readAsDataURL(file); } event.target.value = null; };
@@ -281,36 +317,40 @@ function App() {
     setChatInput(""); setChatImage(null); setIsChatLoading(true);
     try {
       const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies. Vraag: "${userText}"`;
-      let apiBody = { contents: [{ parts: [{ text: prompt }] }] };
-      if (currentImage) apiBody = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: currentImage.split(";")[0].split(":")[1], data: currentImage.split(",")[1] } }] }] };
-      const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiBody) });
-      setChatMessages((prev) => [...prev, { role: "assistant", text: data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, ik kon geen antwoord genereren." }]);
-    } catch (error) { 
-      const errorMsg = error.message.includes("high demand") ? "⏳ Google is druk. Wacht even en probeer opnieuw." : `❌ Fout AI: ${error.message}`;
-      setChatMessages((prev) => [...prev, { role: "assistant", text: errorMsg }]); 
-    } finally { setIsChatLoading(false); }
+      let text;
+      if (currentImage) {
+        const mimeType = currentImage.split(";")[0].split(":")[1];
+        const base64Data = currentImage.split(",")[1];
+        text = await executeAI(prompt, mimeType, base64Data);
+      } else {
+        text = await executeAI(prompt);
+      }
+      setChatMessages((prev) => [...prev, { role: "assistant", text }]);
+    } catch (error) { setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout AI: ${error.message}` }]); } finally { setIsChatLoading(false); }
   };
 
   const handleTranslateReport = async (language) => {
     if (!generatedReport) return;
     setIsTranslating(true);
     try {
-      const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"` }] }] }) });
-      setGeneratedReport(data.candidates?.[0]?.content?.parts?.[0]?.text || generatedReport);
+      const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
+      const text = await executeAI(prompt);
+      setGeneratedReport(text);
       showNotification(`✨ Vertaald naar het ${language}!`);
-    } catch (error) { showNotification(error.message.includes("high demand") ? `⏳ Te druk bij Google.` : `❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
+    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
   };
 
   const handleStructureNote = async () => {
     if (!activeProject?.notes.trim()) return;
     setIsNoteLoading(true);
     try {
-      const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: `Je bent administratief assistent. Maak een overzichtelijk verslag met bullet points van deze ruwe notities: "${activeProject.notes}". Schrijf foutloos Nederlands.` }] }] }) });
-      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: data.candidates?.[0]?.content?.parts?.[0]?.text || "" } : p);
+      const prompt = `Je bent administratief assistent. Maak een overzichtelijk verslag met bullet points van deze ruwe notities: "${activeProject.notes}". Schrijf foutloos Nederlands.`;
+      const text = await executeAI(prompt);
+      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
       await saveToDB(updated);
       setProjects(updated);
       showNotification("✨ Notities overzichtelijk opgesomd!");
-    } catch (error) { showNotification(error.message.includes("high demand") ? `⏳ Te druk bij Google.` : `❌ Fout AI: ${error.message}`); } finally { setIsNoteLoading(false); }
+    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsNoteLoading(false); }
   };
 
   return (
