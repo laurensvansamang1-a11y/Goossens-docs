@@ -1458,8 +1458,7 @@ function App() {
           </div>
         </div>
        )}
-
-    <input 
+<input 
       type="file" 
       accept="image/*" 
       capture="environment" 
@@ -1475,9 +1474,10 @@ function App() {
       style={{ display: 'none' }} 
       onChange={handleMagicUpload} 
     />
- {renderNotificationToast()}
- </div>
-);
+
+    {renderNotificationToast()}
+    </div>
+  );
 }
- 
-export default App;       
+
+export default App;
