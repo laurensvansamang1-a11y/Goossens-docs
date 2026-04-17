@@ -35,25 +35,25 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SCHONE EN CORRECTE AI AANROEP ---
+// --- AI AANROEP MET JOUW SPECIFIEKE AQ. SLEUTEL ---
 const fetchFromGemini = async (apiBody) => {
   
-  // Jouw exacte, correcte AQ-sleutel uit je screenshot:
-  const apiKey = "AQ.Ab8RN6LGgh6bv5wB_9d2HXDHsnf0_7hAJuDHxRJe8-oFEyt9Mg";
+  // De exacte API sleutel uit jouw screenshot
+  const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
   
-  // De betrouwbare URL methode die niet geblokkeerd wordt door webbrowsers
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   
   const response = await fetch(url, {
     method: "POST",
-    headers: { 
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(apiBody)
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || "Er ging iets mis bij Google.");
+  
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Google weigert de aanvraag. Controleer de foutmelding.");
+  }
   
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error("Geen antwoord ontvangen van de AI.");
