@@ -101,7 +101,7 @@ const fetchWithRetry = async (url, options, retries = 5) => {
   }
 };
 
-export default function App() {
+function App() {
   const [projects, setProjects] = useState(initialProjects);
   const [activeView, setActiveView] = useState("list");
   const [selectedProjectId, setSelectedProjectId] = useState(null);
