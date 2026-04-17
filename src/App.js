@@ -35,8 +35,9 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-const fetchWithRetry = async (url, options, retries = 3) => {
-  const delays = [1000, 2000, 4000];
+// --- SLIMME VERTRAGING OM GOOGLE'S "HIGH DEMAND" OP TE VANGEN ---
+const fetchWithRetry = async (url, options, retries = 4) => {
+  const delays = [2000, 4000, 6000, 8000]; // Wacht langer bij drukte
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
@@ -47,6 +48,7 @@ const fetchWithRetry = async (url, options, retries = 3) => {
       return await response.json();
     } catch (error) {
       if (i === retries - 1) throw error;
+      console.warn(`Poging ${i + 1} mislukt, we proberen het opnieuw...`);
       await new Promise((r) => setTimeout(r, delays[i]));
     }
   }
@@ -89,9 +91,9 @@ function App() {
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // --- HIER IS HET VERNIEUWDE, LIGHTWEIGHT MODEL DAT NIET OVERBELAST RAAKT ---
+  // --- DE ABSOLUTE STANDAARD MOTOR EN POORT ---
   const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
-  const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-8b:generateContent?key=${apiKey}`;
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const activeProject = projects.find((p) => p.id === selectedProjectId);
 
@@ -232,7 +234,10 @@ function App() {
         setProjects(combined);
         showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`);
       } else { showNotification("Kon geen geldige projecten op de foto vinden."); }
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsMagicLoading(false); event.target.value = null; }
+    } catch (error) { 
+      if (error.message.includes("high demand")) showNotification(`⏳ Google heeft het te druk. Probeer het over een minuutje opnieuw.`);
+      else showNotification(`❌ Fout AI: ${error.message}`); 
+    } finally { setIsMagicLoading(false); event.target.value = null; }
   };
 
   const handleGenerateReport = async (type) => {
@@ -243,7 +248,10 @@ function App() {
       const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }) });
       setGeneratedReport(data.candidates?.[0]?.content?.parts?.[0]?.text || "Geen tekst gegenereerd.");
       setReportStatus("success");
-    } catch (error) { setGeneratedReport(`❌ Fout bij AI: ${error.message}`); setReportStatus("error"); }
+    } catch (error) { 
+      setGeneratedReport(error.message.includes("high demand") ? `⏳ Google AI is momenteel te druk (High Demand). Probeer het zo nog eens.` : `❌ Fout bij AI: ${error.message}`); 
+      setReportStatus("error"); 
+    }
   };
 
   const handleAnalyzePhoto = async (photoId, base64Url) => {
@@ -257,7 +265,10 @@ function App() {
       await saveToDB(updated);
       setProjects(updated);
       showNotification("✨ AI Analyse voltooid!");
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
+    } catch (error) { 
+      if (error.message.includes("high demand")) showNotification(`⏳ Google heeft het te druk. Probeer het straks opnieuw.`);
+      else showNotification(`❌ Fout AI: ${error.message}`); 
+    } finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
   };
 
   const handleChatImageUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setChatImage(reader.result); reader.readAsDataURL(file); } event.target.value = null; };
@@ -274,7 +285,10 @@ function App() {
       if (currentImage) apiBody = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: currentImage.split(";")[0].split(":")[1], data: currentImage.split(",")[1] } }] }] };
       const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiBody) });
       setChatMessages((prev) => [...prev, { role: "assistant", text: data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, ik kon geen antwoord genereren." }]);
-    } catch (error) { setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout AI: ${error.message}` }]); } finally { setIsChatLoading(false); }
+    } catch (error) { 
+      const errorMsg = error.message.includes("high demand") ? "⏳ Google is druk. Wacht even en probeer opnieuw." : `❌ Fout AI: ${error.message}`;
+      setChatMessages((prev) => [...prev, { role: "assistant", text: errorMsg }]); 
+    } finally { setIsChatLoading(false); }
   };
 
   const handleTranslateReport = async (language) => {
@@ -284,7 +298,7 @@ function App() {
       const data = await fetchWithRetry(API_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"` }] }] }) });
       setGeneratedReport(data.candidates?.[0]?.content?.parts?.[0]?.text || generatedReport);
       showNotification(`✨ Vertaald naar het ${language}!`);
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
+    } catch (error) { showNotification(error.message.includes("high demand") ? `⏳ Te druk bij Google.` : `❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
   };
 
   const handleStructureNote = async () => {
@@ -296,7 +310,7 @@ function App() {
       await saveToDB(updated);
       setProjects(updated);
       showNotification("✨ Notities overzichtelijk opgesomd!");
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsNoteLoading(false); }
+    } catch (error) { showNotification(error.message.includes("high demand") ? `⏳ Te druk bij Google.` : `❌ Fout AI: ${error.message}`); } finally { setIsNoteLoading(false); }
   };
 
   return (
