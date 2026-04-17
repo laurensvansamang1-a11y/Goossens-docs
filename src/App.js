@@ -385,7 +385,7 @@ export default function App() {
       [{"id": "123", "name": "Janssens", "date": "2026-05-01", "duration": "2 dagen"}]`;
 
       const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
