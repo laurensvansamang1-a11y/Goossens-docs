@@ -1464,7 +1464,7 @@ function App() {
       capture="environment" 
       ref={cameraInputRef} 
       style={{ display: 'none' }} 
-      onChange={handleMagicUpload} 
+      onChange={handlePhotoCapture} 
     />
 
     <input 
@@ -1472,7 +1472,7 @@ function App() {
       accept="image/*" 
       ref={fileInputRef} 
       style={{ display: 'none' }} 
-      onChange={handleMagicUpload} 
+      onChange={handlePhotoCapture} 
     />
 
     {renderNotificationToast()}
