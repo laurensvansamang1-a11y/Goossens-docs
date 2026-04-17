@@ -1474,7 +1474,9 @@ export default function App() {
   style={{ display: 'none' }} 
   onChange={handleFileUpload} 
 />
-      {renderNotificationToast()}
+{renderNotificationToast()}
     </div>
   );
 }
+
+export default App;
