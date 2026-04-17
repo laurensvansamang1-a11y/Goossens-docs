@@ -38,6 +38,11 @@ import {
   Trash2,
 } from "lucide-react";
 
+// --- API CONFIGURATIE ---
+const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
+// We gebruiken nu het definitieve, huidige Google model:
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
 // --- INITIAL STATE ---
 const initialProjects = [];
 
@@ -85,14 +90,16 @@ const loadFromDB = async () => {
   }
 };
 
-// --- HELPER FUNCTIE VOOR ROBUUSTE API CALLS (EXPONENTIAL BACKOFF) ---
-const fetchWithRetry = async (url, options, retries = 5) => {
-  const delays = [1000, 2000, 4000, 8000, 16000];
+// --- HELPER FUNCTIE MET DE NIEUWE "FOUT-VERKLIKKER" ---
+const fetchWithRetry = async (url, options, retries = 3) => {
+  const delays = [1000, 2000, 4000];
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
       if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+        // Lees de exacte foutmelding van Google uit de reactie
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `HTTP Error ${response.status}`);
       }
       return await response.json();
     } catch (error) {
@@ -156,9 +163,6 @@ function App() {
   const [isMagicLoading, setIsMagicLoading] = useState(false);
   const magicUploadRef = useRef(null);
 
-  // DE CRUCIALE FIX 1: Filter onzichtbare spaties en enters uit de Netlify sleutel
-  const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();  
-
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -166,6 +170,7 @@ function App() {
 
   const getDerivedStatus = (currentStatus, projectDate) => {
     if (currentStatus !== "Gepland") return currentStatus;
+
     const today = new Date().toISOString().split("T")[0];
     if (projectDate <= today) {
       return "In uitvoering";
@@ -360,12 +365,12 @@ function App() {
     if (!file) return;
 
     if (!apiKey) {
-      showNotification("❌ API Sleutel ontbreekt in Netlify!");
+      showNotification("❌ Oeps! API Sleutel is leeg in Netlify.");
       return;
     }
 
     setIsMagicLoading(true);
-    showNotification("🕵️‍♂️ Planning wordt gelezen...");
+    showNotification("🕵️‍♂️ Planning wordt gelezen en gesorteerd...");
 
     try {
       const base64Url = await new Promise((resolve, reject) => {
@@ -379,49 +384,60 @@ function App() {
       const mimeType = file.type || "image/jpeg";
 
       const prompt = `Lees deze foto van een planning/document. Zoek naar projecten of keukens die geplaatst moeten worden.
+      Let HEEL GOED op de balk of kolommen bovenaan waar vaak dagen of datums staan (bijv. 1, 2, 3... of Ma, Di...).
+      
       Extraheer de volgende informatie per project: 
-      - id (dossiernummer)
-      - name (klantnaam)
-      - date (startdatum YYYY-MM-DD)
-      - duration (duur, bijv '1 dag')
-      Retourneer de data UITSLUITEND als een ruwe JSON array.`;
+      - dossiernummer (als id, verzin er een met 'PRJ-' als het ontbreekt)
+      - klantnaam (als name)
+      - exacte startdatum van plaatsing (als date in YYYY-MM-DD formaat). Bepaal deze startdatum door te kijken onder welke kolom/dag het project begint. Ga er in geval van twijfel van uit dat de huidige maand/jaar van toepassing is.
+      - duur van de plaatsing (als duration, analyseer over hoeveel dagen/kolommen het project zich uitstrekt, bijv. '1 dag', '2 dagen').
+      
+      Retourneer de data UITSLUITEND als een ruwe JSON array, zonder markdown en zonder extra tekst.
+      Voorbeeld output:
+      [{"id": "123", "name": "Janssens", "date": "2026-05-01", "duration": "2 dagen"}]`;
 
-      // DE CRUCIALE FIX 2: v1beta is veranderd naar v1 voor stabiliteit
-      const data = await fetchWithRetry(
-       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: mimeType, data: base64Data } },
-                ],
-              },
-            ],
-          }),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: mimeType, data: base64Data } },
+              ],
+            },
+          ],
+        }),
+      });
 
       let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
-      
+      aiText = aiText
+        .replace(/```json/gi, "")
+        .replace(/```/gi, "")
+        .trim();
+      if (!aiText) aiText = "[]";
+
       let extractedData = [];
       try {
         extractedData = JSON.parse(aiText);
       } catch (parseError) {
+        console.error("JSON Parsing fout:", parseError);
         const match = aiText.match(/\[[\s\S]*\]/);
         if (match) {
-          try { extractedData = JSON.parse(match[0]); } catch (e) {}
+          try {
+            extractedData = JSON.parse(match[0]);
+          } catch (fallbackError) {
+            console.error("Fallback JSON Parsing fout:", fallbackError);
+          }
         }
       }
 
       if (Array.isArray(extractedData) && extractedData.length > 0) {
         const newProjects = extractedData.map((proj) => {
-          const projectDate = proj.date || new Date().toISOString().split("T")[0];
+          const projectDate =
+            proj.date || new Date().toISOString().split("T")[0];
           return {
             id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`,
             name: proj.name || "Onbekende Klant",
@@ -437,19 +453,26 @@ function App() {
         const currentProjects = projectsRef.current;
         const combined = [
           ...newProjects,
-          ...currentProjects.filter((p) => !newProjects.some((np) => np.id === p.id)),
+          ...currentProjects.filter(
+            (p) => !newProjects.some((np) => np.id === p.id)
+          ),
         ];
-        const sorted = combined.sort((a, b) => new Date(a.date) - new Date(b.date));
+        const sorted = combined.sort(
+          (a, b) => new Date(a.date) - new Date(b.date)
+        );
 
         await saveToDB(sorted);
+
         setProjects(sorted);
-        showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`);
+        showNotification(
+          `✨ Succes: ${newProjects.length} projecten toegevoegd!`
+        );
       } else {
         showNotification("Kon geen geldige projecten op de foto vinden.");
       }
     } catch (error) {
       console.error(error);
-      showNotification("❌ Fout bij het uitlezen van de planning.");
+      showNotification(`❌ Fout van Google: ${error.message}`);
     } finally {
       setIsMagicLoading(false);
       event.target.value = null;
@@ -469,11 +492,18 @@ function App() {
 
     if (type === "email") {
       title = "Oplever E-mail (Service)";
-      promptText = `Schrijf een professionele e-mail naar de klant (${activeProject.name}). Informeer ze over openstaande servicepunten en verzeker ze van snelle afhandeling. Formatteer in het Nederlands.`;
+      promptText = `Schrijf een zeer professionele, elegante e-mail naar de klant (${activeProject.name}). 
+      Informeer de klant uitsluitend over het volgende: de plaatsers hebben doorgegeven dat er nog enkele servicepunten openstaan. Verzeker de klant ervan dat deze punten succesvol zijn overgedragen aan onze serviceafdeling en zo snel mogelijk verwerkt zullen worden. 
+      Gebruik een hoogwaardige, zakelijke maar warme tone-of-voice. Zorg voor een overzichtelijke en mooie opmaak met voldoende witregels. Formatteer dit in het Nederlands.`;
       apiBody = { contents: [{ parts: [{ text: promptText }] }] };
     } else if (type === "snaglist") {
       title = "Interne Actielijst (Snag List)";
-      promptText = `Maak een beknopte, puntsgewijze actielijst voor binnendienst. Notities: ${activeProject.notes}. Foto's: ${photoContext}. Antwoord in Nederlands.`;
+      promptText = `Je bent een werkvoorbereider/projectleider voor een keukeninstallatiebedrijf. Hier zijn de notities en AI-analyses van de foto's gemaakt tijdens het project bij ${
+        activeProject.name
+      }:\n
+      Notities: ${activeProject.notes || "Geen notities"}\n
+      Foto's: ${photoContext || "(Geen foto analyses)"}\n\n
+      Maak op basis hiervan een beknopte, puntsgewijze actielijst voor de binnendienst. Noem expliciet zaken die nog afgewerkt, hersteld of besteld moeten worden. Antwoord in het Nederlands.`;
       apiBody = { contents: [{ parts: [{ text: promptText }] }] };
     }
 
@@ -481,21 +511,17 @@ function App() {
     setReportConfig({ isOpen: true, type, title });
 
     try {
-      // DE CRUCIALE FIX 2: v1beta -> v1
-      const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apiBody),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiBody),
+      });
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       setGeneratedReport(text || "Geen tekst gegenereerd.");
       setReportStatus("success");
     } catch (error) {
       console.error(error);
-      setGeneratedReport("Er is een fout opgetreden bij het genereren via de AI.");
+      setGeneratedReport(`❌ Fout van Google: ${error.message}`);
       setReportStatus("error");
     }
   };
@@ -505,27 +531,24 @@ function App() {
     try {
       const base64Data = base64Url.split(",")[1];
       const mimeType = base64Url.split(";")[0].split(":")[1];
-      const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer eventuele zichtbare gebreken of gereedschap. In het Nederlands.";
+      const prompt =
+        "Analyseer deze foto van een keukeninstallatie. Beschrijf in 1 of 2 korte zinnen wat er te zien is (bijv. 'Kasten en werkblad geplaatst'). Noteer ook expliciet of je zichtbare gebreken, achtergebleven gereedschap, of onafgewerkte delen ziet. Antwoord uitsluitend in het Nederlands.";
 
-      // DE CRUCIALE FIX 2: v1beta -> v1
-      const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType, data: base64Data } },
-                ],
-              },
-            ],
-          }),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType, data: base64Data } },
+              ],
+            },
+          ],
+        }),
+      });
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       const updated = projectsRef.current.map((p) =>
@@ -545,7 +568,7 @@ function App() {
       showNotification("✨ AI Analyse voltooid!");
     } catch (error) {
       console.error(error);
-      showNotification("Fout bij AI analyse.");
+      showNotification(`❌ Fout van Google: ${error.message}`);
     } finally {
       setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false }));
     }
@@ -576,7 +599,8 @@ function App() {
     setIsChatLoading(true);
 
     try {
-      const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies. Vraag: "${userText}"`;
+      const prompt = `Je bent een expert keukenmonteur met 20 jaar ervaring. Geef kort, praktisch en veilig advies aan collega monteurs op de werkvloer. Antwoord altijd behulpzaam en in correct, duidelijk Nederlands. 
+      Vraag van de monteur: "${userText}"`;
 
       let apiBody;
       if (currentImage) {
@@ -597,15 +621,11 @@ function App() {
         apiBody = { contents: [{ parts: [{ text: prompt }] }] };
       }
 
-      // DE CRUCIALE FIX 2: v1beta -> v1
-      const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apiBody),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiBody),
+      });
       const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         "Sorry, ik kon geen antwoord genereren.";
@@ -615,7 +635,7 @@ function App() {
       console.error(error);
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "Fout bij het verbinden met de AI." },
+        { role: "assistant", text: `❌ Fout van Google: ${error.message}` },
       ]);
     } finally {
       setIsChatLoading(false);
@@ -626,24 +646,22 @@ function App() {
     if (!generatedReport) return;
     setIsTranslating(true);
     try {
-      const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
+      const prompt = `Vertaal de volgende tekst naar het ${language}. Behoud de professionele toon, de opmaak en de context van het rapport/bericht.
+      Tekst:
+      "${generatedReport}"`;
 
-      // DE CRUCIALE FIX 2: v1beta -> v1
-      const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      });
       const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text || generatedReport;
       setGeneratedReport(text);
       showNotification(`✨ Vertaald naar het ${language}!`);
     } catch (error) {
       console.error(error);
-      showNotification("Fout bij het vertalen.");
+      showNotification(`❌ Fout van Google: ${error.message}`);
     } finally {
       setIsTranslating(false);
     }
@@ -654,17 +672,18 @@ function App() {
     setIsNoteLoading(true);
 
     try {
-      const prompt = `Je bent administratief assistent. Maak een overzichtelijk verslag met bullet points van deze ruwe notities: "${activeProject.notes}". Schrijf foutloos Nederlands.`;
+      const prompt = `Je bent een administratief assistent voor Goossens Keukens.
+      Hier zijn ruwe notities van de monteur: "${activeProject.notes}"
+      
+      Maak hier een zeer overzichtelijk, strak en professioneel verslag van. 
+      Gebruik ALTIJD duidelijke opsommingstekens (bullet points) voor de actiepunten of servicepunten.
+      Zorg dat het document direct leesbaar is voor de klantenservice en planning. Schrijf in foutloos Nederlands en voeg geen onnodige introducties toe.`;
 
-      // DE CRUCIALE FIX 2: v1beta -> v1
-      const data = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        }
-      );
+      const data = await fetchWithRetry(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      });
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
       const updated = projectsRef.current.map((p) =>
@@ -677,7 +696,7 @@ function App() {
       showNotification("✨ Notities overzichtelijk opgesomd!");
     } catch (error) {
       console.error(error);
-      showNotification("Fout bij het herschrijven van de notitie.");
+      showNotification(`❌ Fout van Google: ${error.message}`);
     } finally {
       setIsNoteLoading(false);
     }
@@ -999,7 +1018,7 @@ function App() {
                     )
                   );
                 }}
-                onBlur={() => saveToDB(projectsRef.current)} // Extra zekerheid bij het wegklikken
+                onBlur={() => saveToDB(projectsRef.current)} 
               />
               <button
                 onClick={handleStructureNote}
@@ -1072,7 +1091,6 @@ function App() {
                         alt="Werffoto"
                       />
                       
-                      {/* PRULLENBAK KNOP */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
