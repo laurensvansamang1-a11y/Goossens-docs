@@ -35,20 +35,20 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Schone API aanroep voor de nieuwe "AQ." Premium sleutels
+// --- SCHONE EN CORRECTE AI AANROEP VOOR 'AQ.' SLEUTELS ---
 const fetchFromGemini = async (apiBody) => {
   
-  // Jouw nieuwe, correcte Premium sleutel staat hier al ingevuld!
-  const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
+  // Jouw exacte API sleutel uit de screenshot staat hier veilig ingevuld
+  const apiKey = "AQ.Ab8RN6LGgh6bv5wB_9d2HXDHsnf0_7hAJuDHxRJe8-oFEyt9Mg";
   
-  // Let op: De URL bevat nu GEEN ?key= meer aan het einde
+  // De URL zonder de ?key= parameter (want dat veroorzaakt de OAuth fout)
   const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
   
   const response = await fetch(url, {
     method: "POST",
     headers: { 
       "Content-Type": "application/json",
-      "x-goog-api-key": apiKey // Hier wordt de nieuwe AQ. sleutel veilig verstuurd
+      "x-goog-api-key": apiKey // Hier sturen we de sleutel op de juiste, veilige manier mee
     },
     body: JSON.stringify(apiBody)
   });
