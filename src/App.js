@@ -162,7 +162,7 @@ export default function App() {
   const [isMagicLoading, setIsMagicLoading] = useState(false);
   const magicUploadRef = useRef(null);
 
-  const apiKey = "AQ.Ab8RN6JJciNvbyACX9j-GOiLQWC_E2eE6uRBRMVfTuDmygJ4wQ";
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;  
 
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -385,7 +385,7 @@ export default function App() {
       [{"id": "123", "name": "Janssens", "date": "2026-05-01", "duration": "2 dagen"}]`;
 
       const data = await fetchWithRetry(
-       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
+       `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, 
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
