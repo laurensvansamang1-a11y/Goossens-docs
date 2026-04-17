@@ -35,14 +35,28 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- DIRECTE AI AANROEP MET JOUW AQ. SLEUTEL ---
-const fetchFromGemini = async (apiBody) => {
+// --- SLIMME AI MOTOR (MET VASTE API KEY) ---
+const executeAI = async (promptText, mimeType = null, base64Data = null) => {
+  // Jouw exacte sleutel uit screenshot 5 is hier vastgezet. Netlify is niet meer nodig.
+  const apiKey = "AQ.Ab8RN6JmXGQtku9zJt2HUmiayQeXng4gaiK34Vl7vTH6iKuAsA";
   
-  // Jouw sleutel staat hier hard ingecodeerd. Netlify wordt genegeerd.
-  const apiKey = "AQ.Ab8RN6KQPmx6CXh81um5wiFn3jyZPcEXM-HFSGBQfL5e_0AWng";
-  
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-  
+  if (!apiKey) throw new Error("API Sleutel ontbreekt.");
+
+  const isImage = !!base64Data;
+  const model = "gemini-1.5-flash"; 
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  let apiBody;
+  if (isImage) {
+    apiBody = {
+      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }]
+    };
+  } else {
+    apiBody = {
+      contents: [{ role: "user", parts: [{ text: promptText }] }]
+    };
+  }
+
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,13 +64,9 @@ const fetchFromGemini = async (apiBody) => {
   });
 
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error?.message || "Google weigert de sleutel nog steeds. Fout in de Google instellingen.");
-  }
-  
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Geen antwoord ontvangen van de AI.");
-  return text;
+  if (!response.ok) throw new Error(data.error?.message || "Fout bij Google API");
+
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 };
 
 function App() {
@@ -221,8 +231,7 @@ function App() {
       const base64Data = base64Url.split(",")[1];
       const prompt = `Lees deze planning. Extraheer projecten. Retourneer UITSLUITEND ruwe JSON: [{"id": "dossiernummer", "name": "klantnaam", "date": "YYYY-MM-DD", "duration": "1 dag"}]`;
       
-      const apiBody = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }] };
-      let aiText = await fetchFromGemini(apiBody);
+      let aiText = await executeAI(prompt, mimeType, base64Data);
       
       aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
@@ -243,7 +252,7 @@ function App() {
     const promptText = type === "email" ? `Schrijf een professionele e-mail naar de klant (${activeProject.name}). Informeer ze over openstaande servicepunten en verzeker snelle afhandeling. Formatteer in het Nederlands.` : `Maak een beknopte actielijst voor binnendienst. Notities: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
     try {
-      const text = await fetchFromGemini({ contents: [{ parts: [{ text: promptText }] }] });
+      const text = await executeAI(promptText);
       setGeneratedReport(text);
       setReportStatus("success");
     } catch (error) { setGeneratedReport(`❌ Fout bij AI: ${error.message}`); setReportStatus("error"); }
@@ -255,7 +264,7 @@ function App() {
       const mimeType = base64Url.split(";")[0].split(":")[1];
       const base64Data = base64Url.split(",")[1];
       const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer zichtbare gebreken of gereedschap. In het Nederlands.";
-      const text = await fetchFromGemini({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType, data: base64Data } }] }] });
+      const text = await executeAI(prompt, mimeType, base64Data);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
       await saveToDB(updated);
       setProjects(updated);
@@ -273,11 +282,12 @@ function App() {
     setChatInput(""); setChatImage(null); setIsChatLoading(true);
     try {
       const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies. Vraag: "${userText}"`;
-      let apiBody = { contents: [{ parts: [{ text: prompt }] }] };
+      let text;
       if (currentImage) {
-        apiBody = { contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: currentImage.split(";")[0].split(":")[1], data: currentImage.split(",")[1] } }] }] };
+        text = await executeAI(prompt, currentImage.split(";")[0].split(":")[1], currentImage.split(",")[1]);
+      } else {
+        text = await executeAI(prompt);
       }
-      const text = await fetchFromGemini(apiBody);
       setChatMessages((prev) => [...prev, { role: "assistant", text }]);
     } catch (error) { setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout AI: ${error.message}` }]); } finally { setIsChatLoading(false); }
   };
@@ -287,7 +297,7 @@ function App() {
     setIsTranslating(true);
     try {
       const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
-      const text = await fetchFromGemini({ contents: [{ parts: [{ text: prompt }] }] });
+      const text = await executeAI(prompt);
       setGeneratedReport(text);
       showNotification(`✨ Vertaald naar het ${language}!`);
     } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
@@ -298,7 +308,7 @@ function App() {
     setIsNoteLoading(true);
     try {
       const prompt = `Je bent administratief assistent. Maak een overzichtelijk verslag met bullet points van deze ruwe notities: "${activeProject.notes}". Schrijf foutloos Nederlands.`;
-      const text = await fetchFromGemini({ contents: [{ parts: [{ text: prompt }] }] });
+      const text = await executeAI(prompt);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
       await saveToDB(updated);
       setProjects(updated);
