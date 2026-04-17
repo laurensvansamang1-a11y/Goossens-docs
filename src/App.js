@@ -35,20 +35,21 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Schone API aanroep MET DIRECTE SLEUTEL (Bypass Test)
+// Schone API aanroep voor de nieuwe "AQ." Premium sleutels
 const fetchFromGemini = async (apiBody) => {
   
-  // VVV JOUW SLEUTEL KOMT HIER VVV
+  // Jouw nieuwe, correcte Premium sleutel staat hier al ingevuld!
   const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
-  // ^^^ JOUW SLEUTEL KOMT HIER ^^^
-
-  if (!apiKey || apiKey.includes("PLAK_HIER")) throw new Error("Vergeet niet je API sleutel op regel 43 te plakken!");
   
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  // Let op: De URL bevat nu GEEN ?key= meer aan het einde
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
   
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey // Hier wordt de nieuwe AQ. sleutel veilig verstuurd
+    },
     body: JSON.stringify(apiBody)
   });
 
