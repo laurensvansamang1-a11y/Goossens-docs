@@ -38,11 +38,6 @@ import {
   Trash2,
 } from "lucide-react";
 
-// --- API CONFIGURATIE ---
-const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
-// We gebruiken nu het definitieve, huidige Google model:
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
 // --- INITIAL STATE ---
 const initialProjects = [];
 
@@ -90,14 +85,13 @@ const loadFromDB = async () => {
   }
 };
 
-// --- HELPER FUNCTIE MET DE NIEUWE "FOUT-VERKLIKKER" ---
+// --- HELPER FUNCTIE MET DE NIEUWE FOUTCATCHER ---
 const fetchWithRetry = async (url, options, retries = 3) => {
   const delays = [1000, 2000, 4000];
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(url, options);
       if (!response.ok) {
-        // Lees de exacte foutmelding van Google uit de reactie
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.error?.message || `HTTP Error ${response.status}`);
       }
@@ -143,7 +137,6 @@ function App() {
     },
   ]);
   const [isChatLoading, setIsChatLoading] = useState(false);
-
   const [isNoteLoading, setIsNoteLoading] = useState(false);
 
   const [chatImage, setChatImage] = useState(null);
@@ -159,18 +152,20 @@ function App() {
   });
 
   const [projectToDelete, setProjectToDelete] = useState(null);
-
   const [isMagicLoading, setIsMagicLoading] = useState(false);
   const magicUploadRef = useRef(null);
 
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // --- API SLEUTEL EN STABIELE URL CONFIGURATIE ---
+  const apiKey = String(process.env.REACT_APP_GEMINI_API_KEY || "").trim();
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
   const activeProject = projects.find((p) => p.id === selectedProjectId);
 
   const getDerivedStatus = (currentStatus, projectDate) => {
     if (currentStatus !== "Gepland") return currentStatus;
-
     const today = new Date().toISOString().split("T")[0];
     if (projectDate <= today) {
       return "In uitvoering";
@@ -260,7 +255,6 @@ function App() {
     const updated = projectsRef.current.map((p) =>
       p.id === activeProject.id ? { ...p, status: newStatus } : p
     );
-
     await saveToDB(updated);
     setProjects(updated);
     showNotification(`Status gewijzigd naar: ${newStatus}`);
@@ -271,7 +265,6 @@ function App() {
     const updated = projectsRef.current.map((p) =>
       p.id === activeProject.id ? { ...p, workHours: hours } : p
     );
-
     await saveToDB(updated);
     setProjects(updated);
   };
@@ -365,7 +358,7 @@ function App() {
     if (!file) return;
 
     if (!apiKey) {
-      showNotification("❌ Oeps! API Sleutel is leeg in Netlify.");
+      showNotification("❌ Oeps! API Sleutel ontbreekt of is leeg in Netlify.");
       return;
     }
 
@@ -384,17 +377,13 @@ function App() {
       const mimeType = file.type || "image/jpeg";
 
       const prompt = `Lees deze foto van een planning/document. Zoek naar projecten of keukens die geplaatst moeten worden.
-      Let HEEL GOED op de balk of kolommen bovenaan waar vaak dagen of datums staan (bijv. 1, 2, 3... of Ma, Di...).
-      
+      Let HEEL GOED op de balk of kolommen bovenaan waar vaak dagen of datums staan.
       Extraheer de volgende informatie per project: 
-      - dossiernummer (als id, verzin er een met 'PRJ-' als het ontbreekt)
-      - klantnaam (als name)
-      - exacte startdatum van plaatsing (als date in YYYY-MM-DD formaat). Bepaal deze startdatum door te kijken onder welke kolom/dag het project begint. Ga er in geval van twijfel van uit dat de huidige maand/jaar van toepassing is.
-      - duur van de plaatsing (als duration, analyseer over hoeveel dagen/kolommen het project zich uitstrekt, bijv. '1 dag', '2 dagen').
-      
-      Retourneer de data UITSLUITEND als een ruwe JSON array, zonder markdown en zonder extra tekst.
-      Voorbeeld output:
-      [{"id": "123", "name": "Janssens", "date": "2026-05-01", "duration": "2 dagen"}]`;
+      - id (dossiernummer, verzin een als het ontbreekt beginnend met PRJ-)
+      - name (klantnaam)
+      - date (startdatum YYYY-MM-DD)
+      - duration (duur, bijv '1 dag', '2 dagen')
+      Retourneer de data UITSLUITEND als een ruwe JSON array, geen extra tekst.`;
 
       const data = await fetchWithRetry(API_URL, {
         method: "POST",
@@ -413,12 +402,8 @@ function App() {
       });
 
       let aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-      aiText = aiText
-        .replace(/```json/gi, "")
-        .replace(/```/gi, "")
-        .trim();
-      if (!aiText) aiText = "[]";
-
+      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
+      
       let extractedData = [];
       try {
         extractedData = JSON.parse(aiText);
@@ -436,8 +421,7 @@ function App() {
 
       if (Array.isArray(extractedData) && extractedData.length > 0) {
         const newProjects = extractedData.map((proj) => {
-          const projectDate =
-            proj.date || new Date().toISOString().split("T")[0];
+          const projectDate = proj.date || new Date().toISOString().split("T")[0];
           return {
             id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`,
             name: proj.name || "Onbekende Klant",
@@ -453,26 +437,19 @@ function App() {
         const currentProjects = projectsRef.current;
         const combined = [
           ...newProjects,
-          ...currentProjects.filter(
-            (p) => !newProjects.some((np) => np.id === p.id)
-          ),
+          ...currentProjects.filter((p) => !newProjects.some((np) => np.id === p.id)),
         ];
-        const sorted = combined.sort(
-          (a, b) => new Date(a.date) - new Date(b.date)
-        );
+        const sorted = combined.sort((a, b) => new Date(a.date) - new Date(b.date));
 
         await saveToDB(sorted);
-
         setProjects(sorted);
-        showNotification(
-          `✨ Succes: ${newProjects.length} projecten toegevoegd!`
-        );
+        showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`);
       } else {
         showNotification("Kon geen geldige projecten op de foto vinden.");
       }
     } catch (error) {
       console.error(error);
-      showNotification(`❌ Fout van Google: ${error.message}`);
+      showNotification(`❌ Fout: ${error.message}`);
     } finally {
       setIsMagicLoading(false);
       event.target.value = null;
@@ -492,18 +469,11 @@ function App() {
 
     if (type === "email") {
       title = "Oplever E-mail (Service)";
-      promptText = `Schrijf een zeer professionele, elegante e-mail naar de klant (${activeProject.name}). 
-      Informeer de klant uitsluitend over het volgende: de plaatsers hebben doorgegeven dat er nog enkele servicepunten openstaan. Verzeker de klant ervan dat deze punten succesvol zijn overgedragen aan onze serviceafdeling en zo snel mogelijk verwerkt zullen worden. 
-      Gebruik een hoogwaardige, zakelijke maar warme tone-of-voice. Zorg voor een overzichtelijke en mooie opmaak met voldoende witregels. Formatteer dit in het Nederlands.`;
+      promptText = `Schrijf een professionele e-mail naar de klant (${activeProject.name}). Informeer ze over openstaande servicepunten en verzeker ze van snelle afhandeling. Formatteer in het Nederlands.`;
       apiBody = { contents: [{ parts: [{ text: promptText }] }] };
     } else if (type === "snaglist") {
       title = "Interne Actielijst (Snag List)";
-      promptText = `Je bent een werkvoorbereider/projectleider voor een keukeninstallatiebedrijf. Hier zijn de notities en AI-analyses van de foto's gemaakt tijdens het project bij ${
-        activeProject.name
-      }:\n
-      Notities: ${activeProject.notes || "Geen notities"}\n
-      Foto's: ${photoContext || "(Geen foto analyses)"}\n\n
-      Maak op basis hiervan een beknopte, puntsgewijze actielijst voor de binnendienst. Noem expliciet zaken die nog afgewerkt, hersteld of besteld moeten worden. Antwoord in het Nederlands.`;
+      promptText = `Maak een beknopte, puntsgewijze actielijst voor binnendienst. Notities: ${activeProject.notes || "Geen"}. Foto analyses: ${photoContext || "Geen"}. Antwoord in Nederlands.`;
       apiBody = { contents: [{ parts: [{ text: promptText }] }] };
     }
 
@@ -521,7 +491,7 @@ function App() {
       setReportStatus("success");
     } catch (error) {
       console.error(error);
-      setGeneratedReport(`❌ Fout van Google: ${error.message}`);
+      setGeneratedReport(`❌ Fout bij AI: ${error.message}`);
       setReportStatus("error");
     }
   };
@@ -531,8 +501,7 @@ function App() {
     try {
       const base64Data = base64Url.split(",")[1];
       const mimeType = base64Url.split(";")[0].split(":")[1];
-      const prompt =
-        "Analyseer deze foto van een keukeninstallatie. Beschrijf in 1 of 2 korte zinnen wat er te zien is (bijv. 'Kasten en werkblad geplaatst'). Noteer ook expliciet of je zichtbare gebreken, achtergebleven gereedschap, of onafgewerkte delen ziet. Antwoord uitsluitend in het Nederlands.";
+      const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer eventuele zichtbare gebreken of gereedschap. In het Nederlands.";
 
       const data = await fetchWithRetry(API_URL, {
         method: "POST",
@@ -564,11 +533,10 @@ function App() {
 
       await saveToDB(updated);
       setProjects(updated);
-
       showNotification("✨ AI Analyse voltooid!");
     } catch (error) {
       console.error(error);
-      showNotification(`❌ Fout van Google: ${error.message}`);
+      showNotification(`❌ Fout AI: ${error.message}`);
     } finally {
       setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false }));
     }
@@ -599,8 +567,7 @@ function App() {
     setIsChatLoading(true);
 
     try {
-      const prompt = `Je bent een expert keukenmonteur met 20 jaar ervaring. Geef kort, praktisch en veilig advies aan collega monteurs op de werkvloer. Antwoord altijd behulpzaam en in correct, duidelijk Nederlands. 
-      Vraag van de monteur: "${userText}"`;
+      const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies. Vraag: "${userText}"`;
 
       let apiBody;
       if (currentImage) {
@@ -626,16 +593,14 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(apiBody),
       });
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "Sorry, ik kon geen antwoord genereren.";
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, ik kon geen antwoord genereren.";
 
       setChatMessages((prev) => [...prev, { role: "assistant", text }]);
     } catch (error) {
       console.error(error);
       setChatMessages((prev) => [
         ...prev,
-        { role: "assistant", text: `❌ Fout van Google: ${error.message}` },
+        { role: "assistant", text: `❌ Fout AI: ${error.message}` },
       ]);
     } finally {
       setIsChatLoading(false);
@@ -646,22 +611,19 @@ function App() {
     if (!generatedReport) return;
     setIsTranslating(true);
     try {
-      const prompt = `Vertaal de volgende tekst naar het ${language}. Behoud de professionele toon, de opmaak en de context van het rapport/bericht.
-      Tekst:
-      "${generatedReport}"`;
+      const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
 
       const data = await fetchWithRetry(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       });
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text || generatedReport;
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || generatedReport;
       setGeneratedReport(text);
       showNotification(`✨ Vertaald naar het ${language}!`);
     } catch (error) {
       console.error(error);
-      showNotification(`❌ Fout van Google: ${error.message}`);
+      showNotification(`❌ Fout AI: ${error.message}`);
     } finally {
       setIsTranslating(false);
     }
@@ -672,12 +634,7 @@ function App() {
     setIsNoteLoading(true);
 
     try {
-      const prompt = `Je bent een administratief assistent voor Goossens Keukens.
-      Hier zijn ruwe notities van de monteur: "${activeProject.notes}"
-      
-      Maak hier een zeer overzichtelijk, strak en professioneel verslag van. 
-      Gebruik ALTIJD duidelijke opsommingstekens (bullet points) voor de actiepunten of servicepunten.
-      Zorg dat het document direct leesbaar is voor de klantenservice en planning. Schrijf in foutloos Nederlands en voeg geen onnodige introducties toe.`;
+      const prompt = `Je bent administratief assistent. Maak een overzichtelijk verslag met bullet points van deze ruwe notities: "${activeProject.notes}". Schrijf foutloos Nederlands.`;
 
       const data = await fetchWithRetry(API_URL, {
         method: "POST",
@@ -696,7 +653,7 @@ function App() {
       showNotification("✨ Notities overzichtelijk opgesomd!");
     } catch (error) {
       console.error(error);
-      showNotification(`❌ Fout van Google: ${error.message}`);
+      showNotification(`❌ Fout AI: ${error.message}`);
     } finally {
       setIsNoteLoading(false);
     }
@@ -966,523 +923,4 @@ function App() {
             </div>
 
             {/* WERKJTIJDEN (Enkel zichtbaar bij Service nodig) */}
-            {activeProject.status === "Service nodig" && (
-              <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in">
-                <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2">
-                  <Clock size={16} /> Geschatte Resterende Werkuren (Service)
-                </label>
-                <select
-                  className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium"
-                  value={activeProject.workHours || ""}
-                  onChange={(e) => handleUpdateWorkHours(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Selecteer aantal uren...
-                  </option>
-                  <option value="0.5 uur">0.5 uur</option>
-                  <option value="1 uur">1 uur</option>
-                  <option value="1.5 uur">1.5 uur</option>
-                  <option value="2 uur">2 uur</option>
-                  <option value="2.5 uur">2.5 uur</option>
-                  <option value="3 uur">3 uur</option>
-                  <option value="3.5 uur">3.5 uur</option>
-                  <option value="4 uur">4 uur</option>
-                  <option value="4.5 uur">4.5 uur</option>
-                  <option value="5 uur">5 uur</option>
-                  <option value="5.5 uur">5.5 uur</option>
-                  <option value="6 uur">6 uur</option>
-                  <option value="6.5 uur">6.5 uur</option>
-                  <option value="7 uur">7 uur</option>
-                  <option value="7.5 uur">7.5 uur</option>
-                  <option value="8 uur">8 uur</option>
-                  <option value="Meer dan 8 uur">Meer dan 8 uur</option>
-                </select>
-              </div>
-            )}
-
-            {/* LOGBOEK */}
-            <div className="pt-6 border-t border-slate-100 space-y-3">
-              <p className="text-sm font-black text-slate-800 mb-2 flex items-center gap-2">
-                <PenTool size={18} className="text-slate-400" />
-                Project Logboek / Service Punten
-              </p>
-              <textarea
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[150px] text-sm font-medium leading-relaxed"
-                placeholder="Typ hier de ruwe werfnotities of servicepunten..."
-                value={activeProject.notes}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setProjects((prev) =>
-                    prev.map((p) =>
-                      p.id === activeProject.id ? { ...p, notes: val } : p
-                    )
-                  );
-                }}
-                onBlur={() => saveToDB(projectsRef.current)} 
-              />
-              <button
-                onClick={handleStructureNote}
-                disabled={isNoteLoading}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50"
-              >
-                {isNoteLoading ? (
-                  <Loader2 className="animate-spin" size={16} />
-                ) : (
-                  <ListChecks size={16} />
-                )}{" "}
-                Automatisch Punten Maken (AI)
-              </button>
-            </div>
-          </div>
-
-          {/* AI ACTION GRID */}
-          {activeProject.status === "Service nodig" && (
-            <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100">
-              <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <Sparkles size={18} /> Slimme AI Acties
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={() => handleGenerateReport("email")}
-                  className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"
-                >
-                  <span className="text-indigo-500">
-                    <FileText size={24} />
-                  </span>
-                  <span className="text-xs sm:text-sm font-bold text-indigo-800">
-                    E-mail Klant (Service)
-                  </span>
-                </button>
-                <button
-                  onClick={() => handleGenerateReport("snaglist")}
-                  className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"
-                >
-                  <span className="text-indigo-500">
-                    <ListChecks size={24} />
-                  </span>
-                  <span className="text-xs sm:text-sm font-bold text-indigo-800">
-                    Genereer Actielijst
-                  </span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* FOTO GRID */}
-          <div className="space-y-4">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">
-              Foto Documentatie ({activeProject.photos.length})
-            </p>
-            {activeProject.photos.length === 0 ? (
-              <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">
-                Geen foto's in deze map.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {activeProject.photos.map((ph) => (
-                  <div
-                    key={ph.id}
-                    className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm"
-                  >
-                    <div className="relative aspect-video">
-                      <img
-                        src={ph.url}
-                        className="w-full h-full object-cover"
-                        alt="Werffoto"
-                      />
-                      
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeletePhoto(ph.id);
-                        }}
-                        className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm"
-                        title="Verwijder foto"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-
-                      <div className="absolute top-2 right-2">
-                        {ph.syncStatus === "synced" ? (
-                          <Cloud
-                            className="text-emerald-400 drop-shadow"
-                            size={16}
-                          />
-                        ) : (
-                          <CloudOff
-                            className="text-amber-400 drop-shadow"
-                            size={16}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-4 space-y-3">
-                      {ph.aiCaption ? (
-                        <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2">
-                          <Sparkles
-                            size={12}
-                            className="shrink-0 text-purple-400"
-                          />{" "}
-                          {ph.aiCaption}
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleAnalyzePhoto(ph.id, ph.url)}
-                          disabled={analyzingPhotos[ph.id]}
-                          className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50"
-                        >
-                          {analyzingPhotos[ph.id] ? (
-                            <Loader2
-                              className="animate-spin inline mr-2"
-                              size={12}
-                            />
-                          ) : (
-                            <Sparkles size={12} className="inline mr-2" />
-                          )}{" "}
-                          Analyseer Foto (AI)
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24">
-      {renderHeader()}
-      <main className="max-w-6xl mx-auto p-4 sm:p-6">
-        {activeView === "list"
-          ? renderProjectListView()
-          : renderProjectDetailView()}
-      </main>
-
-      {/* AI REPORT MODAL */}
-      {reportConfig.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm">
-                <Sparkles className="text-blue-500" size={18} />{" "}
-                {reportConfig.title}
-              </h3>
-              <button
-                onClick={() =>
-                  setReportConfig({ ...reportConfig, isOpen: false })
-                }
-                className="p-2 hover:bg-slate-200 rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 bg-white">
-              {reportStatus === "loading" ? (
-                <div className="py-20 text-center space-y-4">
-                  <Loader2
-                    className="animate-spin mx-auto text-blue-600"
-                    size={40}
-                  />
-                  <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">
-                    AI stelt document op...
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <textarea
-                    className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none"
-                    value={generatedReport}
-                    onChange={(e) => setGeneratedReport(e.target.value)}
-                  />
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">
-                      Vertalen:
-                    </span>
-                    <button
-                      onClick={() => handleTranslateReport("Frans")}
-                      disabled={isTranslating}
-                      className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      🇫🇷 Frans
-                    </button>
-                    <button
-                      onClick={() => handleTranslateReport("Engels")}
-                      disabled={isTranslating}
-                      className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50"
-                    >
-                      🇬🇧 Engels
-                    </button>
-                  </div>
-                  <div className="flex justify-end gap-3 pt-4">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(generatedReport);
-                        showNotification("Gekopieerd naar klembord!");
-                      }}
-                      className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs"
-                    >
-                      Kopieer
-                    </button>
-                    <button
-                      onClick={() =>
-                        setReportConfig({ ...reportConfig, isOpen: false })
-                      }
-                      className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs"
-                    >
-                      Sluiten
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CHAT WIDGET */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-        {isChatOpen && (
-          <div className="bg-white w-[calc(100vw-2rem)] sm:w-96 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col h-[500px] mb-4 animate-in slide-in-from-bottom-4">
-            <div className="bg-slate-900 p-4 flex justify-between items-center text-white">
-              <div className="flex items-center gap-2">
-                <Sparkles className="text-blue-400" size={18} />
-                <span className="font-bold tracking-tight">
-                  Montage Assistent
-                </span>
-              </div>
-              <button onClick={() => setIsChatOpen(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-              {chatMessages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`max-w-[85%] p-3 rounded-2xl text-sm font-medium ${
-                    m.role === "user"
-                      ? "bg-blue-600 text-white self-end rounded-tr-none ml-auto"
-                      : "bg-white text-slate-700 border border-slate-200 self-start rounded-tl-none"
-                  }`}
-                >
-                  {m.image && (
-                    <img
-                      src={m.image}
-                      className="rounded-lg mb-2 border border-black/10"
-                      alt="Chat bijlage"
-                    />
-                  )}
-                  <p className="whitespace-pre-wrap leading-relaxed">
-                    {m.text}
-                  </p>
-                </div>
-              ))}
-              {isChatLoading && (
-                <div className="bg-white border border-slate-200 p-3 rounded-2xl self-start rounded-tl-none flex items-center gap-2 text-xs font-bold text-slate-400">
-                  <Loader2 className="animate-spin" size={14} /> AI denkt na...
-                </div>
-              )}
-            </div>
-            {chatImage && (
-              <div className="p-2 bg-slate-200 flex gap-2">
-                <div className="relative w-12 h-12">
-                  <img
-                    src={chatImage}
-                    className="w-full h-full object-cover rounded"
-                    alt="Chat preview"
-                  />
-                  <button
-                    onClick={() => setChatImage(null)}
-                    className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              </div>
-            )}
-            <div className="p-3 bg-white border-t border-slate-100 flex items-center gap-2">
-              <button
-                onClick={() => chatFileInputRef.current?.click()}
-                className="p-2 text-slate-400 hover:text-blue-600 transition-colors shrink-0"
-              >
-                <Paperclip size={20} />
-              </button>
-              <input
-                type="text"
-                className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Vraag iets..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-              />
-              <button
-                onClick={handleSendMessage}
-                className="bg-blue-600 text-white p-2 rounded-xl shrink-0"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-            <input
-              type="file"
-              ref={chatFileInputRef}
-              className="hidden"
-              accept="image/*"
-              onChange={handleChatImageUpload}
-            />
-          </div>
-        )}
-        <button
-          onClick={() => setIsChatOpen(true)}
-          className="bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20"
-        >
-          <MessageSquare size={24} />
-        </button>
-      </div>
-
-      {/* MODALS: ADD/DELETE */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form
-            onSubmit={handleAddProject}
-            className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
-          >
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px]">
-                Nieuw Project
-              </h3>
-              <button type="button" onClick={() => setShowAddModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <input
-                type="text"
-                placeholder="Naam Klant"
-                required
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                value={newProjectData.name}
-                onChange={(e) =>
-                  setNewProjectData({ ...newProjectData, name: e.target.value })
-                }
-              />
-              <input
-                type="text"
-                placeholder="Dossiernummer"
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                value={newProjectData.id}
-                onChange={(e) =>
-                  setNewProjectData({ ...newProjectData, id: e.target.value })
-                }
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="date"
-                  required
-                  className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  value={newProjectData.date}
-                  onChange={(e) =>
-                    setNewProjectData({
-                      ...newProjectData,
-                      date: e.target.value,
-                    })
-                  }
-                />
-                <select
-                  className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm"
-                  value={newProjectData.duration}
-                  onChange={(e) =>
-                    setNewProjectData({
-                      ...newProjectData,
-                      duration: e.target.value,
-                    })
-                  }
-                >
-                  <option>1 dag</option>
-                  <option>2 dagen</option>
-                  <option>3 dagen</option>
-                </select>
-              </div>
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="flex-1 py-3 font-bold text-slate-500 text-xs"
-              >
-                Stop
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg"
-              >
-                Opslaan
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {projectToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
-            <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600">
-              <AlertTriangle size={32} />
-            </div>
-            <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
-            <p className="text-slate-500 text-sm mb-8">
-              Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt
-              wissen?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setProjectToDelete(null)}
-                className="flex-1 py-3 font-bold text-xs text-slate-400"
-              >
-                Nee
-              </button>
-              <button
-                onClick={() => {
-                  const updated = projectsRef.current.filter(
-                    (p) => p.id !== projectToDelete.id
-                  );
-                  setProjects(updated);
-                  saveToDB(updated);
-                  setProjectToDelete(null);
-                  setActiveView("list");
-                  showNotification("Project verwijderd.");
-                }}
-                className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg"
-              >
-                Ja, Wis
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <input 
-        type="file" 
-        accept="image/*" 
-        capture="environment" 
-        ref={cameraInputRef} 
-        style={{ display: 'none' }} 
-        onChange={handlePhotoCapture} 
-      />
-
-      <input 
-        type="file" 
-        accept="image/*" 
-        ref={fileInputRef} 
-        style={{ display: 'none' }} 
-        onChange={handlePhotoCapture} 
-      />
-
-      {renderNotificationToast()}
-    </div>
-  );
-}
-
-export default App;
+            {activeProject
