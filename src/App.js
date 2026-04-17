@@ -35,11 +35,11 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- AI AANROEP MET JOUW SPECIFIEKE AQ. SLEUTEL ---
+// --- DIRECTE AI AANROEP MET JOUW AQ. SLEUTEL ---
 const fetchFromGemini = async (apiBody) => {
   
-  // De exacte API sleutel uit jouw screenshot
-  const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
+  // Jouw sleutel staat hier hard ingecodeerd. Netlify wordt genegeerd.
+  const apiKey = "AQ.Ab8RN6KQPmx6CXh81um5wiFn3jyZPcEXM-HFSGBQfL5e_0AWng";
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   
@@ -50,9 +50,8 @@ const fetchFromGemini = async (apiBody) => {
   });
 
   const data = await response.json();
-  
   if (!response.ok) {
-    throw new Error(data.error?.message || "Google weigert de aanvraag. Controleer de foutmelding.");
+    throw new Error(data.error?.message || "Google weigert de sleutel nog steeds. Fout in de Google instellingen.");
   }
   
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
