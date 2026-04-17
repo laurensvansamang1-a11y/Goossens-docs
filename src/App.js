@@ -1458,7 +1458,22 @@ export default function App() {
           </div>
         </div>
       )}
+<input 
+  type="file" 
+  accept="image/*" 
+  capture="environment" 
+  ref={cameraInputRef} 
+  style={{ display: 'none' }} 
+  onChange={handleFileUpload} 
+/>
 
+<input 
+  type="file" 
+  accept="image/*" 
+  ref={fileInputRef} 
+  style={{ display: 'none' }} 
+  onChange={handleFileUpload} 
+/>
       {renderNotificationToast()}
     </div>
   );
