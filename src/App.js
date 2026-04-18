@@ -35,15 +35,16 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SLIMME AI MOTOR (MET NETLIFY ENVIRONMENT VARIABLE) ---
+// --- SLIMME AI MOTOR (MET GEÜPDATET MODEL EN NETLIFY KLUIS) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
-  // De sleutel wordt nu veilig opgehaald uit de Netlify instellingen (Environment Variables)
+  // 1. Sleutel veilig uit Netlify halen
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  
   if (!apiKey) throw new Error("API Sleutel ontbreekt. Check je Netlify Environment Variables.");
 
   const isImage = !!base64Data;
-  const model = "gemini-1.5-flash"; 
+  
+  // 2. Geüpgraded naar de nieuwste, werkende versie van Google
+  const model = "gemini-2.0-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   let apiBody;
