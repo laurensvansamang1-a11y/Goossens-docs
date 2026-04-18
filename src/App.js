@@ -35,11 +35,12 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SLIMME AI MOTOR (MET VASTE API KEY) ---
+// --- SLIMME AI MOTOR (MET NETLIFY ENVIRONMENT VARIABLE) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
-  // Jouw exacte sleutel uit screenshot 5 is hier vastgezet. Netlify is niet meer nodig.
-  const apiKey = "AQ.Ab8RN6I8UZcTucgsTeYf-llZcDgXXvujmltVNDAdFlDwgLVf7w";
-  if (!apiKey) throw new Error("API Sleutel ontbreekt.");
+  // De sleutel wordt nu veilig opgehaald uit de Netlify instellingen (Environment Variables)
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  
+  if (!apiKey) throw new Error("API Sleutel ontbreekt. Check je Netlify Environment Variables.");
 
   const isImage = !!base64Data;
   const model = "gemini-1.5-flash"; 
