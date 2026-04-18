@@ -35,16 +35,15 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SLIMME AI MOTOR (MET GEÜPDATET MODEL EN NETLIFY KLUIS) ---
+// --- SLIMME AI MOTOR (GEÜPDATET NAAR GEMINI 2.5 FLASH VOOR NIEUWE ACCOUNTS) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
-  // 1. Sleutel veilig uit Netlify halen
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Sleutel ontbreekt. Check je Netlify Environment Variables.");
 
   const isImage = !!base64Data;
   
-  // 2. Geüpgraded naar de nieuwste, werkende versie van Google
-  const model = "gemini-2.0-flash"; 
+  // HIER IS HET OPGELEST: We gebruiken nu de nieuwste 2.5 motor!
+  const model = "gemini-2.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   let apiBody;
