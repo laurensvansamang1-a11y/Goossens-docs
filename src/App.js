@@ -35,14 +35,12 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- SLIMME AI MOTOR (GEÜPDATET NAAR GEMINI 2.5 FLASH VOOR NIEUWE ACCOUNTS) ---
+// --- SLIMME AI MOTOR ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Sleutel ontbreekt. Check je Netlify Environment Variables.");
 
   const isImage = !!base64Data;
-  
-  // HIER IS HET OPGELEST: We gebruiken nu de nieuwste 2.5 motor!
   const model = "gemini-2.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -326,7 +324,8 @@ function App() {
           <h1 className="font-bold text-lg sm:text-xl tracking-tight">Goossens<span className="text-blue-400">Docs</span></h1>
         </div>
         <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400"}`}>
+          {/* AANGEPAST: Online status is groen, Offline is nu feller ROOD */}
+          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/20 text-red-500"}`}>
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
@@ -378,7 +377,11 @@ function App() {
         ) : (
           activeProject && (
             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-              <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 transition-colors"><ChevronLeft size={20} /> Terug</button>
+              {/* AANGEPAST: De terugknop is nu groter en opvallender */}
+              <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all w-fit shadow-sm border border-slate-200 bg-white">
+                <ChevronLeft size={24} /> Terug
+              </button>
+              
               <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                   <div className="flex flex-col gap-1 w-full">
@@ -407,7 +410,10 @@ function App() {
                       <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
                       <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
                         <option value="" disabled>Selecteer aantal uren...</option>
-                        <option value="0.5 uur">0.5 uur</option><option value="1 uur">1 uur</option><option value="2 uur">2 uur</option><option value="3 uur">3 uur</option><option value="4 uur">4 uur</option><option value="8 uur">8 uur</option>
+                        {/* AANGEPAST: Opties per half uur toegevoegd (0.5 t/m 8) */}
+                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
+                          <option key={h} value={`${h} uur`}>{h} uur</option>
+                        ))}
                       </select>
                     </div>
                   )}
