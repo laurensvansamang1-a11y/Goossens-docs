@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2 } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
@@ -72,7 +72,7 @@ function App() {
   const [activeView, setActiveView] = useState("list");
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [notification, setNotification] = useState(null);
+  const [notification, setNotification] = useState(null); 
   const projectsRef = useRef(projects);
   
   useEffect(() => { projectsRef.current = projects; }, [projects]);
@@ -146,20 +146,24 @@ function App() {
           await saveToDB(updated);
           setProjects(updated);
           setIsSyncing(false);
-          showNotification("☁️ Verbinding hersteld: offline foto's zijn geüpload!");
+          showNotification("☁️ Verbinding hersteld: offline foto's zijn geüpload!", "success");
         };
         syncData();
       }
     }
   }, [isOnline, isInitialized]);
 
-  const filteredProjects = projects.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery) return projects;
+    const lowerQuery = searchQuery.toLowerCase();
+    return projects.filter((p) =>
+      p.name.toLowerCase().includes(lowerQuery) || p.id.toLowerCase().includes(lowerQuery)
+    );
+  }, [projects, searchQuery]);
 
-  const showNotification = (message) => {
-    setNotification(message);
-    setTimeout(() => setNotification(null), 3000);
+  const showNotification = (message, type = "success") => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
   };
 
   const handleUpdateStatus = async (newStatus) => {
@@ -167,7 +171,7 @@ function App() {
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus } : p);
     await saveToDB(updated);
     setProjects(updated);
-    showNotification(`Status gewijzigd naar: ${newStatus}`);
+    showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
   };
 
   const handleUpdateWorkHours = async (hours) => {
@@ -186,7 +190,7 @@ function App() {
         const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         await saveToDB(updated);
         setProjects(updated);
-        showNotification(isOnline ? "Foto direct geüpload naar de map!" : "Foto lokaal opgeslagen. Wordt geüpload bij internetverbinding.");
+        showNotification(isOnline ? "Foto direct geüpload naar de map!" : "Foto lokaal opgeslagen. Wordt geüpload bij internetverbinding.", isOnline ? "success" : "error");
       };
       reader.readAsDataURL(file);
     }
@@ -198,26 +202,26 @@ function App() {
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
     await saveToDB(updated);
     setProjects(updated);
-    showNotification("🗑️ Foto succesvol verwijderd!");
+    showNotification("🗑️ Foto succesvol verwijderd!", "success");
   };
 
   const handleAddProject = async (e) => {
     e.preventDefault();
-    if (!newProjectData.name || !newProjectData.date) return showNotification("Vul minstens een naam en startdatum in.");
+    if (!newProjectData.name || !newProjectData.date) return showNotification("Vul minstens een naam en startdatum in.", "error");
     const newProject = { id: newProjectData.id || `PRJ-MAN-${Date.now().toString().slice(-4)}`, name: newProjectData.name, date: newProjectData.date, duration: newProjectData.duration, status: getDerivedStatus("Gepland", newProjectData.date), photos: [], notes: "", workHours: "" };
     const updated = [...projectsRef.current, newProject].sort((a, b) => new Date(a.date) - new Date(b.date));
     await saveToDB(updated);
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
     setShowAddModal(false);
-    showNotification("✨ Nieuwe projectmap handmatig aangemaakt en direct opgeslagen!");
+    showNotification("✨ Nieuwe projectmap handmatig aangemaakt!", "success");
   };
 
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     setIsMagicLoading(true);
-    showNotification("🕵️‍♂️ Planning wordt gelezen...");
+    showNotification("🕵️‍♂️ Planning wordt gelezen...", "success");
     try {
       const base64Url = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -228,17 +232,17 @@ function App() {
       const mimeType = file.type || "image/jpeg";
       const base64Data = base64Url.split(",")[1];
       
-      // HIER ZIT DE OPLOSSING: Een veel specifiekere prompt speciaal voor jouw formulier!
-      const prompt = `Lees deze specifieke projectplanning (Camionbezetting). Extraheer de projecten per dag.
+      // VERNIEUWDE, SLIMMERE PROMPT: Vertelt de AI hoe hij multi-day projecten moet groeperen en dat hij enkel de achternaam mag pakken.
+      const prompt = `Lees deze specifieke projectplanning (Camionbezetting). Extraheer de projecten en groepeer ze per uniek dossiernummer.
       Volg deze STRIKTE regels voor de data:
       1. "id" (dossiernummer): Pak UITSLUITEND het 4-cijferige getal uit de kolom naast 'Plaatsing' of 'Inter' (bijv. 7987, 8091, 8103). Dit is het dossiernummer.
-      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam (bijv. "Schraeyen - Smets", "linten cosemans", "HERMANS"). Negeer voornamen zoals Jens, Elien of Damian.
-      3. "date" (datum): Kijk naar de grijze datum-balken (bijv. "maandag 20/04/2026") en formatteer dit EXACT als "YYYY-MM-DD" (bijv. "2026-04-20").
-      4. "duration" (duur): Vul standaard "1 dag" in.
+      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam (bijv. "Schraeyen", "linten cosemans", "HERMANS"). Negeer voornamen zoals Jens, Elien of Damian.
+      3. "date" (datum): Kijk naar de grijze datum-balken. Als een project over meerdere dagen loopt, pak dan de EERSTE (vroegste) startdatum. Formatteer dit EXACT als "YYYY-MM-DD" (bijv. "2026-04-20").
+      4. "duration" (duur): Tel op hoeveel verschillende dagen ditzelfde dossiernummer op de planning staat. Komt hij 1 keer voor, vul in "1 dag". Staat hij op 2 dagen (zoals Hulsmans 7962 op donderdag en vrijdag), vul dan "2 dagen" in. Bij 3 dagen "3 dagen", etc.
+      Geef per uniek dossiernummer ("id") MAAR ÉÉN object in de JSON array terug.
       Retourneer UITSLUITEND ruwe JSON in dit exacte formaat: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, mimeType, base64Data);
-      
       aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
       try { extractedData = JSON.parse(aiText); } catch (err) { const match = aiText.match(/\[[\s\S]*\]/); if (match) extractedData = JSON.parse(match[0]); }
@@ -248,9 +252,14 @@ function App() {
         const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
         await saveToDB(combined);
         setProjects(combined);
-        showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`);
-      } else { showNotification("Kon geen projecten op de foto vinden."); }
-    } catch (error) { showNotification(`❌ AI Fout: ${error.message}`); } finally { setIsMagicLoading(false); event.target.value = null; }
+        showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
+      } else { showNotification("Kon geen projecten op de foto vinden.", "error"); }
+    } catch (error) { 
+      showNotification(`AI Fout: ${error.message}`, "error"); 
+    } finally { 
+      setIsMagicLoading(false); 
+      event.target.value = null; 
+    }
   };
 
   const handleGenerateReport = async (type) => {
@@ -261,7 +270,10 @@ function App() {
       const text = await executeAI(promptText);
       setGeneratedReport(text);
       setReportStatus("success");
-    } catch (error) { setGeneratedReport(`❌ Fout bij AI: ${error.message}`); setReportStatus("error"); }
+    } catch (error) { 
+      setReportConfig({ ...reportConfig, isOpen: false });
+      showNotification(`AI Fout: ${error.message}`, "error");
+    }
   };
 
   const handleAnalyzePhoto = async (photoId, base64Url) => {
@@ -274,8 +286,12 @@ function App() {
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
       await saveToDB(updated);
       setProjects(updated);
-      showNotification("✨ AI Analyse voltooid!");
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
+      showNotification("✨ AI Analyse voltooid!", "success");
+    } catch (error) { 
+      showNotification(`AI Fout: ${error.message}`, "error"); 
+    } finally { 
+      setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); 
+    }
   };
 
   const handleChatImageUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setChatImage(reader.result); reader.readAsDataURL(file); } event.target.value = null; };
@@ -295,7 +311,11 @@ function App() {
         text = await executeAI(prompt);
       }
       setChatMessages((prev) => [...prev, { role: "assistant", text }]);
-    } catch (error) { setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout AI: ${error.message}` }]); } finally { setIsChatLoading(false); }
+    } catch (error) { 
+      setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Helaas: ${error.message}` }]); 
+    } finally { 
+      setIsChatLoading(false); 
+    }
   };
 
   const handleTranslateReport = async (language) => {
@@ -305,8 +325,12 @@ function App() {
       const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
       const text = await executeAI(prompt);
       setGeneratedReport(text);
-      showNotification(`✨ Vertaald naar het ${language}!`);
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsTranslating(false); }
+      showNotification(`✨ Vertaald naar het ${language}!`, "success");
+    } catch (error) { 
+      showNotification(`Vertaalfout: ${error.message}`, "error"); 
+    } finally { 
+      setIsTranslating(false); 
+    }
   };
 
   const handleStructureNote = async () => {
@@ -318,12 +342,16 @@ function App() {
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
       await saveToDB(updated);
       setProjects(updated);
-      showNotification("✨ Notities overzichtelijk opgesomd!");
-    } catch (error) { showNotification(`❌ Fout AI: ${error.message}`); } finally { setIsNoteLoading(false); }
+      showNotification("✨ Notities overzichtelijk opgesomd!", "success");
+    } catch (error) { 
+      showNotification(`AI Fout: ${error.message}`, "error"); 
+    } finally { 
+      setIsNoteLoading(false); 
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative">
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-lg px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2 cursor-pointer group" onClick={() => magicUploadRef.current?.click()}>
           <div className="bg-blue-600 p-2 rounded-lg group-hover:bg-blue-500 transition-colors">
@@ -473,7 +501,7 @@ function App() {
                 <div className="space-y-4">
                   <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
                   <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
+                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
                 </div>
               )}
             </div>
@@ -481,26 +509,39 @@ function App() {
         </div>
       )}
 
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+      {/* Mobiele Chat */}
+      <div className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end pointer-events-none">
         {isChatOpen && (
-          <div className="bg-white w-[calc(100vw-2rem)] sm:w-96 rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col h-[500px] mb-4 animate-in slide-in-from-bottom-4">
-            <div className="bg-slate-900 p-4 flex justify-between items-center text-white"><div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div><button onClick={() => setIsChatOpen(false)}><X size={20} /></button></div>
+          <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
+            <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
+              <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
+              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+            </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
-                <div key={i} className={`max-w-[85%] p-3 rounded-2xl text-sm font-medium ${m.role === "user" ? "bg-blue-600 text-white self-end rounded-tr-none ml-auto" : "bg-white text-slate-700 border border-slate-200 self-start rounded-tl-none"}`}>{m.image && <img src={m.image} className="rounded-lg mb-2 border border-black/10" alt="Chat bijlage" />}<p className="whitespace-pre-wrap leading-relaxed">{m.text}</p></div>
+                <div key={i} className={`max-w-[85%] p-3 rounded-2xl text-sm font-medium ${m.role === "user" ? "bg-blue-600 text-white self-end rounded-tr-none ml-auto" : "bg-white text-slate-700 border border-slate-200 self-start rounded-tl-none shadow-sm"}`}>
+                  {m.image && <img src={m.image} className="rounded-lg mb-2 border border-black/10" alt="Chat bijlage" />}
+                  <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                </div>
               ))}
-              {isChatLoading && <div className="bg-white border border-slate-200 p-3 rounded-2xl self-start rounded-tl-none flex items-center gap-2 text-xs font-bold text-slate-400"><Loader2 className="animate-spin" size={14} /> AI denkt na...</div>}
+              {isChatLoading && <div className="bg-white border border-slate-200 p-3 rounded-2xl self-start rounded-tl-none flex items-center gap-2 text-xs font-bold text-slate-400 shadow-sm"><Loader2 className="animate-spin" size={14} /> AI denkt na...</div>}
             </div>
-            {chatImage && <div className="p-2 bg-slate-200 flex gap-2"><div className="relative w-12 h-12"><img src={chatImage} className="w-full h-full object-cover rounded" alt="Chat preview" /><button onClick={() => setChatImage(null)} className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"><X size={10} /></button></div></div>}
-            <div className="p-3 bg-white border-t border-slate-100 flex items-center gap-2"><button onClick={() => chatFileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-blue-600 transition-colors shrink-0"><Paperclip size={20} /></button><input type="text" className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Vraag iets..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} /><button onClick={handleSendMessage} className="bg-blue-600 text-white p-2 rounded-xl shrink-0"><Send size={18} /></button></div>
+            {chatImage && <div className="p-2 bg-slate-200 flex gap-2 shrink-0"><div className="relative w-12 h-12"><img src={chatImage} className="w-full h-full object-cover rounded" alt="Chat preview" /><button onClick={() => setChatImage(null)} className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"><X size={10} /></button></div></div>}
+            <div className="p-3 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
+              <button onClick={() => chatFileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-blue-600 transition-colors shrink-0"><Paperclip size={20} /></button>
+              <input type="text" className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Vraag iets..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} />
+              <button onClick={handleSendMessage} className="bg-blue-600 text-white p-3 rounded-xl shrink-0 shadow-md hover:bg-blue-700 transition-colors"><Send size={18} /></button>
+            </div>
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => setIsChatOpen(true)} className="bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20"><MessageSquare size={24} /></button>
+        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+          <MessageSquare size={24} />
+        </button>
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
           <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button></div>
             <div className="p-6 space-y-4">
@@ -514,19 +555,26 @@ function App() {
       )}
 
       {projectToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
             <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
             <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
             <p className="text-slate-500 text-sm mb-8">Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt wissen?</p>
-            <div className="flex gap-3"><button onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); setProjectToDelete(null); setActiveView("list"); showNotification("Project verwijderd."); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
+            <div className="flex gap-3"><button onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); setProjectToDelete(null); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
           </div>
         </div>
       )}
       
       <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
       <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
-      {notification && <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[60] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto"><CheckCircle size={20} className="shrink-0" /><span className="font-bold text-sm text-center">{notification}</span></div>}
+      
+      {/* Vernieuwd notificatiesysteem */}
+      {notification && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
+          {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
+          <span>{notification.message}</span>
+        </div>
+      )}
     </div>
   );
 }
