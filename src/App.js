@@ -754,4 +754,50 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-
+        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+          <MessageSquare size={24} />
+        </button>
+      </div>
+
+      {/* MODAL VOOR NIEUW PROJECT */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
+          <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button></div>
+            <div className="p-6 space-y-4">
+              <input type="text" placeholder="Naam Klant" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })} />
+              <input type="text" placeholder="Dossiernummer" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({ ...newProjectData, id: e.target.value })} />
+              <div className="grid grid-cols-2 gap-3"><input type="date" required className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({ ...newProjectData, date: e.target.value })} /><select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({ ...newProjectData, duration: e.target.value })}><option>1 dag</option><option>2 dagen</option><option>3 dagen</option></select></div>
+            </div>
+            <div className="p-6 bg-slate-50 flex gap-3"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 font-bold text-slate-500 text-xs">Stop</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Opslaan</button></div>
+          </form>
+        </div>
+      )}
+
+      {/* DELETE MODAL */}
+      {projectToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
+          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
+            <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
+            <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
+            <p className="text-slate-500 text-sm mb-8">Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt wissen?</p>
+            <div className="flex gap-3"><button onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); setProjectToDelete(null); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
+          </div>
+        </div>
+      )}
+      
+      <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
+      <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
+      
+      {/* NOTIFICATIE POPUP */}
+      {notification && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center print:hidden ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
+          {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
+          <span>{notification.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
