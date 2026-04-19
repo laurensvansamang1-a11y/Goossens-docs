@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2 } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -35,10 +35,92 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// --- DIGITALE HANDTEKENING COMPONENT ---
+const SignaturePad = ({ onSave, initialSignature }) => {
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas && initialSignature) {
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0);
+      img.src = initialSignature;
+    }
+  }, [initialSignature]);
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX || e.touches[0].clientX) - rect.left;
+    const y = (e.clientY || e.touches[0].clientY) - rect.top;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    e.preventDefault(); // Voorkomt scrollen tijdens tekenen
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX || e.touches[0].clientX) - rect.left;
+    const y = (e.clientY || e.touches[0].clientY) - rect.top;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  };
+
+  const stopDrawing = () => {
+    if (isDrawing) {
+      setIsDrawing(false);
+      onSave(canvasRef.current.toDataURL("image/png"));
+    }
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onSave(null);
+  };
+
+  return (
+    <div className="space-y-2 print:hidden">
+      <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
+        <canvas
+          ref={canvasRef}
+          width={300}
+          height={150}
+          className="w-full h-[150px] bg-slate-50 cursor-crosshair"
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
+        />
+      </div>
+      <div className="flex justify-between items-center px-1">
+        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Teken hierboven</p>
+        <button onClick={clearSignature} className="flex items-center gap-1 text-rose-500 hover:text-rose-600 text-xs font-bold transition-colors">
+          <Eraser size={14} /> Wissen
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // --- SLIMME AI MOTOR ---
 const executeAI = async (promptText, mimeType = null, base64Data = null) => {
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("API Sleutel ontbreekt. Check je Netlify Environment Variables.");
+  if (!apiKey) throw new Error("API Sleutel ontbreekt in Netlify instellingen.");
 
   const isImage = !!base64Data;
   const model = "gemini-2.5-flash"; 
@@ -91,6 +173,7 @@ function App() {
   const [chatMessages, setChatMessages] = useState([{ role: "assistant", text: "Hoi! Ik ben de AI Montage Assistent. Stel hier je technische vraag!" }]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isNoteLoading, setIsNoteLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false); // Voor Spraakherkenning
   const [chatImage, setChatImage] = useState(null);
   const chatFileInputRef = useRef(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -166,12 +249,55 @@ function App() {
     setTimeout(() => setNotification(null), 4000);
   };
 
+  // --- SPRAAK NAAR TEKST FUNCTIE ---
+  const toggleListening = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showNotification("Spraakherkenning wordt niet ondersteund op dit toestel.", "error");
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'nl-BE'; // Belgisch Nederlands
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onresult = async (event) => {
+      const transcript = event.results[0][0].transcript;
+      const currentNotes = activeProject.notes ? activeProject.notes + "\n" : "";
+      const newNotes = currentNotes + "- " + transcript;
+      
+      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: newNotes } : p);
+      await saveToDB(updated);
+      setProjects(updated);
+      showNotification("🎙️ Tekst toegevoegd!", "success");
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    
+    recognition.start();
+  };
+
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus } : p);
+    // Als de status verandert van afgewerkt naar iets anders, wissen we de handtekening
+    const signature = newStatus !== "Afgewerkt" ? null : activeProject.signature;
+    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated);
     setProjects(updated);
     showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
+  };
+
+  const handleSaveSignature = async (base64Data) => {
+    if (!activeProject) return;
+    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, signature: base64Data } : p);
+    await saveToDB(updated);
+    setProjects(updated);
   };
 
   const handleUpdateWorkHours = async (hours) => {
@@ -208,7 +334,7 @@ function App() {
   const handleAddProject = async (e) => {
     e.preventDefault();
     if (!newProjectData.name || !newProjectData.date) return showNotification("Vul minstens een naam en startdatum in.", "error");
-    const newProject = { id: newProjectData.id || `PRJ-MAN-${Date.now().toString().slice(-4)}`, name: newProjectData.name, date: newProjectData.date, duration: newProjectData.duration, status: getDerivedStatus("Gepland", newProjectData.date), photos: [], notes: "", workHours: "" };
+    const newProject = { id: newProjectData.id || `PRJ-MAN-${Date.now().toString().slice(-4)}`, name: newProjectData.name, date: newProjectData.date, duration: newProjectData.duration, status: getDerivedStatus("Gepland", newProjectData.date), photos: [], notes: "", workHours: "", signature: null };
     const updated = [...projectsRef.current, newProject].sort((a, b) => new Date(a.date) - new Date(b.date));
     await saveToDB(updated);
     setProjects(updated);
@@ -232,13 +358,12 @@ function App() {
       const mimeType = file.type || "image/jpeg";
       const base64Data = base64Url.split(",")[1];
       
-      // VERNIEUWDE, SLIMMERE PROMPT: Vertelt de AI hoe hij multi-day projecten moet groeperen en dat hij enkel de achternaam mag pakken.
       const prompt = `Lees deze specifieke projectplanning (Camionbezetting). Extraheer de projecten en groepeer ze per uniek dossiernummer.
       Volg deze STRIKTE regels voor de data:
-      1. "id" (dossiernummer): Pak UITSLUITEND het 4-cijferige getal uit de kolom naast 'Plaatsing' of 'Inter' (bijv. 7987, 8091, 8103). Dit is het dossiernummer.
-      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam (bijv. "Schraeyen", "linten cosemans", "HERMANS"). Negeer voornamen zoals Jens, Elien of Damian.
-      3. "date" (datum): Kijk naar de grijze datum-balken. Als een project over meerdere dagen loopt, pak dan de EERSTE (vroegste) startdatum. Formatteer dit EXACT als "YYYY-MM-DD" (bijv. "2026-04-20").
-      4. "duration" (duur): Tel op hoeveel verschillende dagen ditzelfde dossiernummer op de planning staat. Komt hij 1 keer voor, vul in "1 dag". Staat hij op 2 dagen (zoals Hulsmans 7962 op donderdag en vrijdag), vul dan "2 dagen" in. Bij 3 dagen "3 dagen", etc.
+      1. "id" (dossiernummer): Pak UITSLUITEND het 4-cijferige getal uit de kolom naast 'Plaatsing' of 'Inter'.
+      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam. Negeer voornamen.
+      3. "date" (datum): Kijk naar de grijze datum-balken. Als een project over meerdere dagen loopt, pak dan de EERSTE (vroegste) startdatum. Formatteer als "YYYY-MM-DD".
+      4. "duration" (duur): Tel op hoeveel verschillende dagen ditzelfde dossiernummer op de planning staat (bijv. "1 dag", "2 dagen", "3 dagen").
       Geef per uniek dossiernummer ("id") MAAR ÉÉN object in de JSON array terug.
       Retourneer UITSLUITEND ruwe JSON in dit exacte formaat: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
@@ -248,7 +373,7 @@ function App() {
       try { extractedData = JSON.parse(aiText); } catch (err) { const match = aiText.match(/\[[\s\S]*\]/); if (match) extractedData = JSON.parse(match[0]); }
       
       if (Array.isArray(extractedData) && extractedData.length > 0) {
-        const newProjects = extractedData.map((proj) => ({ id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), photos: [], notes: "", workHours: "" }));
+        const newProjects = extractedData.map((proj) => ({ id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), photos: [], notes: "", workHours: "", signature: null }));
         const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
         await saveToDB(combined);
         setProjects(combined);
@@ -350,9 +475,15 @@ function App() {
     }
   };
 
+  // Functie voor PDF generatie (activeert de browser print functie)
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative">
-      <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-lg px-4 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative print:bg-white print:pb-0">
+      {/* HEADER - Verborgen bij printen */}
+      <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-lg px-4 h-16 flex items-center justify-between print:hidden">
         <div className="flex items-center gap-2 cursor-pointer group" onClick={() => magicUploadRef.current?.click()}>
           <div className="bg-blue-600 p-2 rounded-lg group-hover:bg-blue-500 transition-colors">
             {isMagicLoading ? <Loader2 className="animate-spin" size={20} /> : <FolderOpen size={20} />}
@@ -369,9 +500,15 @@ function App() {
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*" onChange={handleMagicUpload} />
       </header>
 
-      <main className="max-w-6xl mx-auto p-4 sm:p-6">
+      {/* PRINT HEADER - Alleen zichtbaar bij PDF generatie */}
+      <div className="hidden print:block mb-8 border-b-2 border-slate-200 pb-4">
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Goossens<span className="text-blue-600">Docs</span> Rapportage</h1>
+        <p className="text-slate-500 text-sm mt-1">Gegenereerd op {new Date().toLocaleDateString('nl-BE')}</p>
+      </div>
+
+      <main className="max-w-6xl mx-auto p-4 sm:p-6 print:p-0">
         {activeView === "list" ? (
-          <div className="w-full animate-in fade-in duration-300">
+          <div className="w-full animate-in fade-in duration-300 print:hidden">
             <div className="mb-6 md:mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Projecten</h2>
@@ -412,11 +549,18 @@ function App() {
         ) : (
           activeProject && (
             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-              <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all w-fit shadow-sm border border-slate-200 bg-white">
-                <ChevronLeft size={24} /> Terug
-              </button>
               
-              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+              <div className="flex justify-between items-center print:hidden">
+                <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
+                  <ChevronLeft size={24} /> Terug
+                </button>
+                {/* PDF PRINT KNOP */}
+                <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
+                  <Printer size={18} /> Opslaan als PDF
+                </button>
+              </div>
+              
+              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
                 <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                   <div className="flex flex-col gap-1 w-full">
                     <div className="flex items-center gap-3">
@@ -424,40 +568,74 @@ function App() {
                       <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm" onDoubleClick={() => setProjectToDelete(activeProject)} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
-                      <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
+                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => setProjectToDelete(activeProject)} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                      <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
                   <button onClick={() => cameraInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen</span></button>
                   <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden</span></button>
                 </div>
-                <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm">
-                  <h3 className="text-lg sm:text-xl font-black text-slate-800 mb-2 flex items-center gap-2"><CheckCircle size={22} className="text-slate-400 shrink-0" /> Status Oplevering</h3>
-                  <div className="flex flex-col sm:flex-row gap-3 mb-6">
+
+                <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
+                  <h3 className="text-lg sm:text-xl font-black text-slate-800 mb-2 flex items-center gap-2 print:hidden"><CheckCircle size={22} className="text-slate-400 shrink-0" /> Status Oplevering</h3>
+                  <div className="flex flex-col sm:flex-row gap-3 mb-6 print:hidden">
                     <button onClick={() => handleUpdateStatus("Afgewerkt")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Afgewerkt" ? "bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"}`}><CheckCircle size={20} className="shrink-0" /><span>Afgewerkt <span className="hidden sm:inline">(Geen Service)</span></span></button>
                     <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                   </div>
+
                   {activeProject.status === "Service nodig" && (
-                    <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in">
+                    <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
-                      <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
+                      <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium print:hidden" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
                         <option value="" disabled>Selecteer aantal uren...</option>
                         {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
                           <option key={h} value={`${h} uur`}>{h} uur</option>
                         ))}
                       </select>
+                      <p className="hidden print:block text-lg font-medium text-slate-700">{activeProject.workHours || "Geen uren opgegeven"}</p>
                     </div>
                   )}
-                  <div className="pt-6 border-t border-slate-100 space-y-3">
-                    <p className="text-sm font-black text-slate-800 mb-2 flex items-center gap-2"><PenTool size={18} className="text-slate-400" /> Project Logboek / Service Punten</p>
-                    <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[150px] text-sm font-medium leading-relaxed" placeholder="Typ hier de ruwe werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => p.id === activeProject.id ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
-                    <button onClick={handleStructureNote} disabled={isNoteLoading} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50">{isNoteLoading ? <Loader2 className="animate-spin" size={16} /> : <ListChecks size={16} />} Automatisch Punten Maken (AI)</button>
+
+                  {/* DIGITALE HANDTEKENING VELD */}
+                  {activeProject.status === "Afgewerkt" && (
+                    <div className="mb-6 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
+                      <label className="block text-sm font-bold text-emerald-800 mb-3 flex items-center gap-2"><PenTool size={16} /> Handtekening Klant voor Akkoord</label>
+                      <SignaturePad onSave={handleSaveSignature} initialSignature={activeProject.signature} />
+                      {/* Print versie van handtekening */}
+                      {activeProject.signature && (
+                        <div className="hidden print:block mt-2">
+                          <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b border-black" />
+                          <p className="text-xs text-slate-500 mt-1">Digitaal getekend voor akkoord door klant.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-6 border-t border-slate-100 space-y-3 print:pt-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm font-black text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400" /> Project Logboek / Notities</p>
+                      {/* MICROFOON KNOP (SPRAAK NAAR TEKST) */}
+                      <button onClick={toggleListening} className={`print:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isListening ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                        <Mic size={14} /> {isListening ? "Aan het luisteren..." : "Dicteren"}
+                      </button>
+                    </div>
+                    
+                    <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[150px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => p.id === activeProject.id ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
+                    
+                    {/* Print versie van notities */}
+                    <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
+                      {activeProject.notes || "Geen notities opgegeven."}
+                    </div>
+
+                    <button onClick={handleStructureNote} disabled={isNoteLoading} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50 print:hidden">{isNoteLoading ? <Loader2 className="animate-spin" size={16} /> : <ListChecks size={16} />} Automatisch Punten Maken (AI)</button>
                   </div>
                 </div>
+
                 {activeProject.status === "Service nodig" && (
-                  <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100">
+                  <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                     <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
@@ -465,20 +643,20 @@ function App() {
                     </div>
                   </div>
                 )}
+
                 <div className="space-y-4">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
-                  {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm print:hidden">Geen foto's in deze map.</div> : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:grid-cols-2 print:gap-2">
                       {activeProject.photos.map((ph) => (
-                        <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
-                          <div className="relative aspect-video">
-                            <img src={ph.url} className="w-full h-full object-cover" alt="Werffoto" />
-                            <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm" title="Verwijder foto"><Trash2 size={16} /></button>
-                            <div className="absolute top-2 right-2">{ph.syncStatus === "synced" ? <Cloud className="text-emerald-400 drop-shadow" size={16} /> : <CloudOff className="text-amber-400 drop-shadow" size={16} />}</div>
+                        <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm print:break-inside-avoid print:bg-white">
+                          <div className="relative aspect-video print:aspect-auto">
+                            <img src={ph.url} className="w-full h-full object-cover print:max-h-48 print:object-contain" alt="Werffoto" />
+                            <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm print:hidden" title="Verwijder foto"><Trash2 size={16} /></button>
                           </div>
-                          <div className="p-4 space-y-3">
-                            {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
-                              <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
+                          <div className="p-4 space-y-3 print:p-2">
+                            {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2 print:bg-transparent print:border-slate-200 print:text-slate-700"><Sparkles size={12} className="shrink-0 text-purple-400 print:hidden" /> {ph.aiCaption}</div> : (
+                              <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50 print:hidden">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
                             )}
                           </div>
                         </div>
@@ -493,7 +671,7 @@ function App() {
       </main>
 
       {reportConfig.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
             <div className="p-6 overflow-y-auto flex-1 bg-white">
@@ -510,7 +688,7 @@ function App() {
       )}
 
       {/* Mobiele Chat */}
-      <div className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end pointer-events-none">
+      <div className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end pointer-events-none print:hidden">
         {isChatOpen && (
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
@@ -535,13 +713,13 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button></div>
             <div className="p-6 space-y-4">
@@ -555,7 +733,7 @@ function App() {
       )}
 
       {projectToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
             <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
             <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
@@ -568,9 +746,8 @@ function App() {
       <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
       <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
       
-      {/* Vernieuwd notificatiesysteem */}
       {notification && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center print:hidden ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
           {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
           <span>{notification.message}</span>
         </div>
