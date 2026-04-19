@@ -59,7 +59,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   });
 };
 
-// --- VERBETERDE DIGITALE HANDTEKENING COMPONENT ---
+// --- DIGITALE HANDTEKENING COMPONENT ---
 const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -312,7 +312,8 @@ function App() {
 
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus } : p);
+    const signature = newStatus !== "Afgewerkt" ? null : activeProject.signature;
+    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated);
     setProjects(updated);
     showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
@@ -422,17 +423,16 @@ function App() {
     }
   };
 
-  // --- VERBETERDE AI E-MAIL GENERATIE ---
+  // --- VERNIEUWDE AI E-MAIL LOGICA ---
   const handleGenerateReport = async (type) => {
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
     
-    // De specifieke prompt voor de e-mail zoals je vroeg
+    // Exact afgestemd op de wens van de gebruiker: Geen punten in de mail, wel geruststellend, beknopt en warm.
     const promptText = type === "email" 
-      ? `Schrijf een professionele en beknopte e-mail naar de klant (${activeProject.name}). Informeer de klant vriendelijk dat de volgende servicepunten vandaag zijn genoteerd en doorgegeven aan de binnendienst: "${activeProject.notes || "Zie notities monteur"}". Verzeker de klant dat we hier zo spoedig mogelijk mee aan de slag gaan. Houd het kort en zakelijk. In het Nederlands.` 
+      ? `Schrijf een korte, professionele maar warme e-mail naar de klant (${activeProject.name}). Informeer de klant dat de monteur de nodige servicepunten heeft genoteerd en succesvol heeft doorgegeven aan onze binnendienst. BELANGRIJK: Benoem GEEN specifieke servicepunten in de tekst. Verzeker de klant dat we ons uiterste best doen om dit zo snel mogelijk te verwerken en op te lossen. Geef vriendelijk aan dat ze bij eventuele vragen altijd contact met ons mogen opnemen. Formatteer in vloeiend Nederlands.` 
       : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
     
-    setReportStatus("loading"); 
-    setReportConfig({ isOpen: true, type, title });
+    setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
     
     try {
       const text = await executeAI(promptText);
@@ -650,7 +650,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* HANDTEKENING: Nu zichtbaar bij zowel Afgewerkt als Service Nodig */}
+                  {/* HANDTEKENING */}
                   {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
                     <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
@@ -687,7 +687,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* AI ACTIES: Altijd zichtbaar (Zodat je de E-mail knop altijd kunt gebruiken) */}
+                {/* AI ACTIES (OOK ALS AFGEWERKT OF SERVICE NODIG GEKOZEN IS) */}
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -722,7 +722,7 @@ function App() {
         )}
       </main>
 
-      {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
+      {/* MODAL VOOR AI RAPPORTEN */}
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -771,6 +771,7 @@ function App() {
         </button>
       </div>
 
+      {/* MODAL VOOR NIEUW PROJECT */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
@@ -785,6 +786,7 @@ function App() {
         </div>
       )}
 
+      {/* DELETE MODAL */}
       {projectToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
@@ -799,6 +801,7 @@ function App() {
       <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
       <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
       
+      {/* NOTIFICATIE POPUP */}
       {notification && (
         <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center print:hidden ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
           {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
