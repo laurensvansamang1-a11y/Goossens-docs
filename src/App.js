@@ -227,7 +227,15 @@ function App() {
       });
       const mimeType = file.type || "image/jpeg";
       const base64Data = base64Url.split(",")[1];
-      const prompt = `Lees deze planning. Extraheer projecten. Retourneer UITSLUITEND ruwe JSON: [{"id": "dossiernummer", "name": "klantnaam", "date": "YYYY-MM-DD", "duration": "1 dag"}]`;
+      
+      // HIER ZIT DE OPLOSSING: Een veel specifiekere prompt speciaal voor jouw formulier!
+      const prompt = `Lees deze specifieke projectplanning (Camionbezetting). Extraheer de projecten per dag.
+      Volg deze STRIKTE regels voor de data:
+      1. "id" (dossiernummer): Pak UITSLUITEND het 4-cijferige getal uit de kolom naast 'Plaatsing' of 'Inter' (bijv. 7987, 8091, 8103). Dit is het dossiernummer.
+      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam (bijv. "Schraeyen - Smets", "linten cosemans", "HERMANS"). Negeer voornamen zoals Jens, Elien of Damian.
+      3. "date" (datum): Kijk naar de grijze datum-balken (bijv. "maandag 20/04/2026") en formatteer dit EXACT als "YYYY-MM-DD" (bijv. "2026-04-20").
+      4. "duration" (duur): Vul standaard "1 dag" in.
+      Retourneer UITSLUITEND ruwe JSON in dit exacte formaat: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, mimeType, base64Data);
       
@@ -324,7 +332,6 @@ function App() {
           <h1 className="font-bold text-lg sm:text-xl tracking-tight">Goossens<span className="text-blue-400">Docs</span></h1>
         </div>
         <div className="flex items-center gap-3">
-          {/* AANGEPAST: Online status is groen, Offline is nu feller ROOD */}
           <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${isOnline ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/20 text-red-500"}`}>
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
@@ -377,7 +384,6 @@ function App() {
         ) : (
           activeProject && (
             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-              {/* AANGEPAST: De terugknop is nu groter en opvallender */}
               <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all w-fit shadow-sm border border-slate-200 bg-white">
                 <ChevronLeft size={24} /> Terug
               </button>
@@ -410,7 +416,6 @@ function App() {
                       <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
                       <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
                         <option value="" disabled>Selecteer aantal uren...</option>
-                        {/* AANGEPAST: Opties per half uur toegevoegd (0.5 t/m 8) */}
                         {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
                           <option key={h} value={`${h} uur`}>{h} uur</option>
                         ))}
