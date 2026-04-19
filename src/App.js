@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -59,20 +59,11 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   });
 };
 
-// --- DIGITALE HANDTEKENING COMPONENT ---
-const SignaturePad = ({ onSave, initialSignature }) => {
+// --- VERBETERDE DIGITALE HANDTEKENING COMPONENT ---
+const SignaturePad = ({ onSave, onClear }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas && initialSignature) {
-      const ctx = canvas.getContext("2d");
-      const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0);
-      img.src = initialSignature;
-    }
-  }, [initialSignature]);
+  const [hasDrawn, setHasDrawn] = useState(false);
 
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
@@ -83,6 +74,7 @@ const SignaturePad = ({ onSave, initialSignature }) => {
     ctx.beginPath();
     ctx.moveTo(x, y);
     setIsDrawing(true);
+    setHasDrawn(true);
   };
 
   const draw = (e) => {
@@ -103,7 +95,6 @@ const SignaturePad = ({ onSave, initialSignature }) => {
   const stopDrawing = () => {
     if (isDrawing) {
       setIsDrawing(false);
-      onSave(canvasRef.current.toDataURL("image/png"));
     }
   };
 
@@ -111,11 +102,18 @@ const SignaturePad = ({ onSave, initialSignature }) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onSave(null);
+    setHasDrawn(false);
+    onClear();
+  };
+
+  const confirmSignature = () => {
+    if (hasDrawn) {
+      onSave(canvasRef.current.toDataURL("image/png"));
+    }
   };
 
   return (
-    <div className="space-y-2 print:hidden">
+    <div className="space-y-3 print:hidden">
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
         <canvas
           ref={canvasRef}
@@ -132,9 +130,11 @@ const SignaturePad = ({ onSave, initialSignature }) => {
         />
       </div>
       <div className="flex justify-between items-center px-1">
-        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Teken hierboven</p>
-        <button onClick={clearSignature} className="flex items-center gap-1 text-rose-500 hover:text-rose-600 text-xs font-bold transition-colors">
-          <Eraser size={14} /> Wissen
+        <button onClick={clearSignature} type="button" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
+          <Eraser size={16} /> Wissen
+        </button>
+        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm">
+          <Check size={16} /> Bevestigen
         </button>
       </div>
     </div>
@@ -280,7 +280,7 @@ function App() {
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showNotification("Spraakherkenning niet ondersteund.", "error");
+      showNotification("Spraakherkenning niet ondersteund door deze browser.", "error");
       return;
     }
 
@@ -312,8 +312,7 @@ function App() {
 
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
-    const signature = newStatus !== "Afgewerkt" ? null : activeProject.signature;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
+    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus } : p);
     await saveToDB(updated);
     setProjects(updated);
     showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
@@ -324,6 +323,7 @@ function App() {
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, signature: base64Data } : p);
     await saveToDB(updated);
     setProjects(updated);
+    if (base64Data) showNotification("✍️ Handtekening succesvol bevestigd!", "success");
   };
 
   const handleUpdateWorkHours = async (hours) => {
@@ -422,10 +422,18 @@ function App() {
     }
   };
 
+  // --- VERBETERDE AI E-MAIL GENERATIE ---
   const handleGenerateReport = async (type) => {
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
-    const promptText = type === "email" ? `Schrijf een professionele e-mail naar de klant (${activeProject.name}). Informeer ze over openstaande servicepunten en verzeker snelle afhandeling. Formatteer in het Nederlands.` : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
-    setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
+    
+    // De specifieke prompt voor de e-mail zoals je vroeg
+    const promptText = type === "email" 
+      ? `Schrijf een professionele en beknopte e-mail naar de klant (${activeProject.name}). Informeer de klant vriendelijk dat de volgende servicepunten vandaag zijn genoteerd en doorgegeven aan de binnendienst: "${activeProject.notes || "Zie notities monteur"}". Verzeker de klant dat we hier zo spoedig mogelijk mee aan de slag gaan. Houd het kort en zakelijk. In het Nederlands.` 
+      : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
+    
+    setReportStatus("loading"); 
+    setReportConfig({ isOpen: true, type, title });
+    
     try {
       const text = await executeAI(promptText);
       setGeneratedReport(text);
@@ -504,21 +512,11 @@ function App() {
     }
   };
 
-  // --- NIEUWE AI LOGICA VOOR SERVICE PUNTEN ---
   const handleStructureNote = async () => {
     if (!activeProject?.notes.trim()) return;
     setIsNoteLoading(true);
     try {
-      // De vernieuwde prompt die focust op restpunten en ontbrekende zaken
-      const prompt = `Je bent een professionele service-planner voor een keukenbedrijf.
-      Analyseer de volgende ruwe werfnotities: "${activeProject.notes}"
-      
-      Maak een gestructureerd overzicht met de volgende twee koppen (indien van toepassing):
-      - 🛠️ WAT ER NOG MOET GEBEUREN (actiepunten voor de monteur)
-      - 📦 WAT ER ONTBREEKT (onderdelen, gereedschap of materialen)
-      
-      Schrijf in helder Nederlands met bullet points. Wees kort en zakelijk.`;
-      
+      const prompt = `Je bent een professionele service-planner voor een keukenbedrijf. Analyseer de volgende ruwe werfnotities: "${activeProject.notes}". Maak een gestructureerd overzicht met de volgende twee koppen (indien van toepassing): 🛠️ WAT ER NOG MOET GEBEUREN (actiepunten voor de monteur) en 📦 WAT ER ONTBREEKT (onderdelen, gereedschap of materialen). Schrijf in helder Nederlands met bullet points. Wees kort en zakelijk.`;
       const text = await executeAI(prompt);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
       await saveToDB(updated);
@@ -652,14 +650,20 @@ function App() {
                     </div>
                   )}
 
-                  {activeProject.status === "Afgewerkt" && (
-                    <div className="mb-6 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
-                      <label className="block text-sm font-bold text-emerald-800 mb-3 flex items-center gap-2"><PenTool size={16} /> Handtekening Klant voor Akkoord</label>
-                      <SignaturePad onSave={handleSaveSignature} initialSignature={activeProject.signature} />
-                      {activeProject.signature && (
-                        <div className="hidden print:block mt-2">
-                          <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b border-black" />
-                          <p className="text-xs text-slate-500 mt-1">Digitaal getekend voor akkoord door klant.</p>
+                  {/* HANDTEKENING: Nu zichtbaar bij zowel Afgewerkt als Service Nodig */}
+                  {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
+                    <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
+                      <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
+                      
+                      {!activeProject.signature ? (
+                        <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} />
+                      ) : (
+                        <div className="space-y-3">
+                          <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b-2 border-slate-800 print:border-black" />
+                          <p className="text-xs text-emerald-600 font-bold flex items-center gap-1 print:hidden"><CheckCircle size={14} /> Digitaal getekend</p>
+                          <button onClick={() => handleSaveSignature(null)} className="text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors print:hidden flex items-center gap-1">
+                            <Eraser size={12} /> Handtekening wissen en opnieuw tekenen
+                          </button>
                         </div>
                       )}
                     </div>
@@ -667,7 +671,6 @@ function App() {
 
                   <div className="pt-6 border-t border-slate-100 space-y-3 print:pt-4">
                     <div className="flex justify-between items-center mb-2">
-                      {/* AANGEPASTE TITEL */}
                       <p className="text-sm font-black text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400" /> Project Logboek en Service Punten</p>
                       <button onClick={toggleListening} className={`print:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isListening ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                         <Mic size={14} /> {isListening ? "Aan het luisteren..." : "Dicteren"}
@@ -681,6 +684,15 @@ function App() {
                     </div>
 
                     <button onClick={handleStructureNote} disabled={isNoteLoading} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50 print:hidden">{isNoteLoading ? <Loader2 className="animate-spin" size={16} /> : <ListChecks size={16} />} Automatisch Punten Maken (AI)</button>
+                  </div>
+                </div>
+
+                {/* AI ACTIES: Altijd zichtbaar (Zodat je de E-mail knop altijd kunt gebruiken) */}
+                <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
+                  <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => handleGenerateReport("snaglist")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
@@ -710,9 +722,9 @@ function App() {
         )}
       </main>
 
-      {/* MODAL VOOR AI RAPPORTEN */}
+      {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
       {reportConfig.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
             <div className="p-6 overflow-y-auto flex-1 bg-white">
@@ -759,45 +771,10 @@ function App() {
         </button>
       </div>
 
-      {/* MODAL VOOR NIEUW PROJECT */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button></div>
             <div className="p-6 space-y-4">
               <input type="text" placeholder="Naam Klant" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })} />
-              <input type="text" placeholder="Dossiernummer" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({ ...newProjectData, id: e.target.value })} />
-              <div className="grid grid-cols-2 gap-3"><input type="date" required className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({ ...newProjectData, date: e.target.value })} /><select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({ ...newProjectData, duration: e.target.value })}><option>1 dag</option><option>2 dagen</option><option>3 dagen</option></select></div>
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 font-bold text-slate-500 text-xs">Stop</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Opslaan</button></div>
-          </form>
-        </div>
-      )}
-
-      {/* DELETE MODAL */}
-      {projectToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
-            <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
-            <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
-            <p className="text-slate-500 text-sm mb-8">Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt wissen?</p>
-            <div className="flex gap-3"><button onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); setProjectToDelete(null); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
-          </div>
-        </div>
-      )}
-      
-      <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
-      <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
-      
-      {/* NOTIFICATIE POPUP */}
-      {notification && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center print:hidden ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
-          {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
-          <span>{notification.message}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default App;
+              <input type="text" placeholder="Dossiernummer
