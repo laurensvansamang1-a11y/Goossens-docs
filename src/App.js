@@ -35,6 +35,30 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// --- AFBEELDINGSCOMPRESSOR (Snelheid & Geheugenbesparing) ---
+const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+  });
+};
+
 // --- DIGITALE HANDTEKENING COMPONENT ---
 const SignaturePad = ({ onSave, initialSignature }) => {
   const canvasRef = useRef(null);
@@ -54,8 +78,8 @@ const SignaturePad = ({ onSave, initialSignature }) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches[0].clientX) - rect.left;
-    const y = (e.clientY || e.touches[0].clientY) - rect.top;
+    const x = (e.clientX || e.touches ? e.touches[0].clientX : 0) - rect.left;
+    const y = (e.clientY || e.touches ? e.touches[0].clientY : 0) - rect.top;
     ctx.beginPath();
     ctx.moveTo(x, y);
     setIsDrawing(true);
@@ -63,12 +87,12 @@ const SignaturePad = ({ onSave, initialSignature }) => {
 
   const draw = (e) => {
     if (!isDrawing) return;
-    e.preventDefault(); // Voorkomt scrollen tijdens tekenen
+    e.preventDefault(); 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || e.touches[0].clientX) - rect.left;
-    const y = (e.clientY || e.touches[0].clientY) - rect.top;
+    const x = (e.clientX || e.touches ? e.touches[0].clientX : 0) - rect.left;
+    const y = (e.clientY || e.touches ? e.touches[0].clientY : 0) - rect.top;
     ctx.lineTo(x, y);
     ctx.stroke();
     ctx.lineWidth = 2;
@@ -118,7 +142,7 @@ const SignaturePad = ({ onSave, initialSignature }) => {
 };
 
 // --- SLIMME AI MOTOR ---
-const executeAI = async (promptText, mimeType = null, base64Data = null) => {
+const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Sleutel ontbreekt in Netlify instellingen.");
 
@@ -126,14 +150,18 @@ const executeAI = async (promptText, mimeType = null, base64Data = null) => {
   const model = "gemini-2.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+  const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
+
   let apiBody;
   if (isImage) {
     apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }]
+      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
+      generationConfig
     };
   } else {
     apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }] }]
+      contents: [{ role: "user", parts: [{ text: promptText }] }],
+      generationConfig
     };
   }
 
@@ -173,7 +201,7 @@ function App() {
   const [chatMessages, setChatMessages] = useState([{ role: "assistant", text: "Hoi! Ik ben de AI Montage Assistent. Stel hier je technische vraag!" }]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isNoteLoading, setIsNoteLoading] = useState(false);
-  const [isListening, setIsListening] = useState(false); // Voor Spraakherkenning
+  const [isListening, setIsListening] = useState(false);
   const [chatImage, setChatImage] = useState(null);
   const chatFileInputRef = useRef(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -249,11 +277,10 @@ function App() {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // --- SPRAAK NAAR TEKST FUNCTIE ---
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showNotification("Spraakherkenning wordt niet ondersteund op dit toestel.", "error");
+      showNotification("Spraakherkenning wordt helaas niet ondersteund door deze browser.", "error");
       return;
     }
 
@@ -263,7 +290,7 @@ function App() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = 'nl-BE'; // Belgisch Nederlands
+    recognition.lang = 'nl-BE'; 
     recognition.interimResults = false;
 
     recognition.onstart = () => setIsListening(true);
@@ -285,7 +312,6 @@ function App() {
 
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
-    // Als de status verandert van afgewerkt naar iets anders, wissen we de handtekening
     const signature = newStatus !== "Afgewerkt" ? null : activeProject.signature;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated);
@@ -312,7 +338,9 @@ function App() {
     if (file && activeProject) {
       const reader = new FileReader();
       reader.onloadend = async () => {
-        const newPhoto = { id: Date.now().toString(), url: reader.result, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" };
+        const compressedBase64 = await compressImage(reader.result, 1200, 0.7);
+        const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" };
+        
         const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         await saveToDB(updated);
         setProjects(updated);
@@ -347,7 +375,7 @@ function App() {
     const file = event.target.files[0];
     if (!file) return;
     setIsMagicLoading(true);
-    showNotification("🕵️‍♂️ Planning wordt gelezen...", "success");
+    showNotification("🕵️‍♂️ Planning wordt geanalyseerd...", "success");
     try {
       const base64Url = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -355,22 +383,29 @@ function App() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const mimeType = file.type || "image/jpeg";
-      const base64Data = base64Url.split(",")[1];
+
+      const compressedImage = await compressImage(base64Url, 1600, 0.7);
+      const mimeType = "image/jpeg";
+      const base64Data = compressedImage.split(",")[1];
       
-      const prompt = `Lees deze specifieke projectplanning (Camionbezetting). Extraheer de projecten en groepeer ze per uniek dossiernummer.
-      Volg deze STRIKTE regels voor de data:
-      1. "id" (dossiernummer): Pak UITSLUITEND het 4-cijferige getal uit de kolom naast 'Plaatsing' of 'Inter'.
-      2. "name" (klantnaam): Pak uit de naam-kolom ALLEEN de achternaam. Negeer voornamen.
-      3. "date" (datum): Kijk naar de grijze datum-balken. Als een project over meerdere dagen loopt, pak dan de EERSTE (vroegste) startdatum. Formatteer als "YYYY-MM-DD".
-      4. "duration" (duur): Tel op hoeveel verschillende dagen ditzelfde dossiernummer op de planning staat (bijv. "1 dag", "2 dagen", "3 dagen").
-      Geef per uniek dossiernummer ("id") MAAR ÉÉN object in de JSON array terug.
-      Retourneer UITSLUITEND ruwe JSON in dit exacte formaat: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
+      const prompt = `Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
+      Regels:
+      1. "id" (dossiernummer): 4-cijferig getal uit kolom naast 'Plaatsing' of 'Inter'.
+      2. "name" (klantnaam): Alleen de achternaam uit de naam-kolom. Geen voornamen.
+      3. "date" (datum): Eerste (vroegste) startdatum in "YYYY-MM-DD" formaat.
+      4. "duration" (duur): Tel op hoeveel dagen dit dossiernummer voorkomt (bijv. "1 dag", "2 dagen").
+      Retourneer een zuivere JSON array. Voorbeeld: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
-      let aiText = await executeAI(prompt, mimeType, base64Data);
+      let aiText = await executeAI(prompt, mimeType, base64Data, true);
+      
       aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
-      try { extractedData = JSON.parse(aiText); } catch (err) { const match = aiText.match(/\[[\s\S]*\]/); if (match) extractedData = JSON.parse(match[0]); }
+      try { 
+        extractedData = JSON.parse(aiText); 
+      } catch (err) { 
+        const match = aiText.match(/\[[\s\S]*\]/); 
+        if (match) extractedData = JSON.parse(match[0]); 
+      }
       
       if (Array.isArray(extractedData) && extractedData.length > 0) {
         const newProjects = extractedData.map((proj) => ({ id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), photos: [], notes: "", workHours: "", signature: null }));
@@ -404,7 +439,7 @@ function App() {
   const handleAnalyzePhoto = async (photoId, base64Url) => {
     setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: true }));
     try {
-      const mimeType = base64Url.split(";")[0].split(":")[1];
+      const mimeType = "image/jpeg"; 
       const base64Data = base64Url.split(",")[1];
       const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer zichtbare gebreken of gereedschap. In het Nederlands.";
       const text = await executeAI(prompt, mimeType, base64Data);
@@ -419,7 +454,18 @@ function App() {
     }
   };
 
-  const handleChatImageUpload = (event) => { const file = event.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setChatImage(reader.result); reader.readAsDataURL(file); } event.target.value = null; };
+  const handleChatImageUpload = async (event) => { 
+    const file = event.target.files[0]; 
+    if (file) { 
+      const reader = new FileReader(); 
+      reader.onloadend = async () => {
+        const compressedBase64 = await compressImage(reader.result, 1000, 0.7);
+        setChatImage(compressedBase64); 
+      };
+      reader.readAsDataURL(file); 
+    } 
+    event.target.value = null; 
+  };
 
   const handleSendMessage = async () => {
     if (!chatInput.trim() && !chatImage) return;
@@ -431,7 +477,7 @@ function App() {
       const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies. Vraag: "${userText}"`;
       let text;
       if (currentImage) {
-        text = await executeAI(prompt, currentImage.split(";")[0].split(":")[1], currentImage.split(",")[1]);
+        text = await executeAI(prompt, "image/jpeg", currentImage.split(",")[1]);
       } else {
         text = await executeAI(prompt);
       }
@@ -475,14 +521,12 @@ function App() {
     }
   };
 
-  // Functie voor PDF generatie (activeert de browser print functie)
   const handlePrintPDF = () => {
     window.print();
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24 relative print:bg-white print:pb-0">
-      {/* HEADER - Verborgen bij printen */}
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-lg px-4 h-16 flex items-center justify-between print:hidden">
         <div className="flex items-center gap-2 cursor-pointer group" onClick={() => magicUploadRef.current?.click()}>
           <div className="bg-blue-600 p-2 rounded-lg group-hover:bg-blue-500 transition-colors">
@@ -500,7 +544,6 @@ function App() {
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*" onChange={handleMagicUpload} />
       </header>
 
-      {/* PRINT HEADER - Alleen zichtbaar bij PDF generatie */}
       <div className="hidden print:block mb-8 border-b-2 border-slate-200 pb-4">
         <h1 className="text-3xl font-black text-slate-900 tracking-tight">Goossens<span className="text-blue-600">Docs</span> Rapportage</h1>
         <p className="text-slate-500 text-sm mt-1">Gegenereerd op {new Date().toLocaleDateString('nl-BE')}</p>
@@ -554,7 +597,6 @@ function App() {
                 <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
                   <ChevronLeft size={24} /> Terug
                 </button>
-                {/* PDF PRINT KNOP */}
                 <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
                   <Printer size={18} /> Opslaan als PDF
                 </button>
@@ -599,12 +641,10 @@ function App() {
                     </div>
                   )}
 
-                  {/* DIGITALE HANDTEKENING VELD */}
                   {activeProject.status === "Afgewerkt" && (
                     <div className="mb-6 p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-emerald-800 mb-3 flex items-center gap-2"><PenTool size={16} /> Handtekening Klant voor Akkoord</label>
                       <SignaturePad onSave={handleSaveSignature} initialSignature={activeProject.signature} />
-                      {/* Print versie van handtekening */}
                       {activeProject.signature && (
                         <div className="hidden print:block mt-2">
                           <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b border-black" />
@@ -617,7 +657,6 @@ function App() {
                   <div className="pt-6 border-t border-slate-100 space-y-3 print:pt-4">
                     <div className="flex justify-between items-center mb-2">
                       <p className="text-sm font-black text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400" /> Project Logboek / Notities</p>
-                      {/* MICROFOON KNOP (SPRAAK NAAR TEKST) */}
                       <button onClick={toggleListening} className={`print:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isListening ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                         <Mic size={14} /> {isListening ? "Aan het luisteren..." : "Dicteren"}
                       </button>
@@ -625,7 +664,6 @@ function App() {
                     
                     <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[150px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => p.id === activeProject.id ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
                     
-                    {/* Print versie van notities */}
                     <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
                       {activeProject.notes || "Geen notities opgegeven."}
                     </div>
@@ -687,7 +725,6 @@ function App() {
         </div>
       )}
 
-      {/* Mobiele Chat */}
       <div className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end pointer-events-none print:hidden">
         {isChatOpen && (
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
