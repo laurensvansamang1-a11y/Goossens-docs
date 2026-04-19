@@ -427,9 +427,18 @@ function App() {
   const handleGenerateReport = async (type) => {
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
     
-    // Exact afgestemd op de wens van de gebruiker: Geen punten in de mail, wel geruststellend, beknopt en warm.
+    // AANGEPASTE PROMPT: Extreem specifiek om het woord 'servicebezoek' en de specifieke punten te vermijden.
     const promptText = type === "email" 
-      ? `Schrijf een korte, professionele maar warme e-mail naar de klant (${activeProject.name}). Informeer de klant dat de monteur de nodige servicepunten heeft genoteerd en succesvol heeft doorgegeven aan onze binnendienst. BELANGRIJK: Benoem GEEN specifieke servicepunten in de tekst. Verzeker de klant dat we ons uiterste best doen om dit zo snel mogelijk te verwerken en op te lossen. Geef vriendelijk aan dat ze bij eventuele vragen altijd contact met ons mogen opnemen. Formatteer in vloeiend Nederlands.` 
+      ? `Schrijf een korte, professionele en warme e-mail naar de klant (${activeProject.name}). 
+         Context: De keukenplaatser heeft zojuist de plaatsing op de werf afgerond, maar er zijn nog enkele servicepunten genoteerd die nog moeten gebeuren.
+         Instructies: 
+         1. Informeer de klant vriendelijk dat de plaatser de resterende punten heeft genoteerd.
+         2. Geef aan dat deze punten succesvol zijn doorgegeven aan onze binnendienst en dat deze verder uitgewerkt zullen worden.
+         3. BELANGRIJK: Benoem GEEN ENKEL specifiek servicepunt in de tekst.
+         4. BELANGRIJK: Gebruik NIET de woorden "recent servicebezoek" of "tijdens zijn servicebezoek". Het was namelijk een plaatsing/installatie.
+         5. Verzeker de klant dat we ons best doen om alles zo snel mogelijk te verwerken.
+         6. Geef vriendelijk aan dat ze bij eventuele vragen altijd contact met ons mogen opnemen.
+         Formatteer de mail netjes in vloeiend Nederlands.` 
       : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
@@ -650,7 +659,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* HANDTEKENING */}
+                  {/* HANDTEKENING: Zichtbaar bij Afgewerkt EN Service Nodig */}
                   {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
                     <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
@@ -722,7 +731,7 @@ function App() {
         )}
       </main>
 
-      {/* MODAL VOOR AI RAPPORTEN */}
+      {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
