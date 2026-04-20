@@ -35,7 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- AFBEELDINGSCOMPRESSOR ---
+// --- AFBEELDINGSCOMPRESSOR (Met Transparantie-Fix) ---
 const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Voorkomt zwarte achtergrond bij transparante bestanden (PDF/PNG)
+      // Essentieel: Vul achtergrond met wit zodat transparante PDF/PNG niet zwart wordt.
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -145,6 +145,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     }
   };
 
+  // 'touch-none' voorkomt dat de pagina scrolt terwijl de klant tekent op iOS/Android
   return (
     <div className="space-y-3 print:hidden">
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
@@ -152,7 +153,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
           ref={canvasRef}
           width={600} 
           height={300}
-          className="w-full h-[150px] bg-slate-50 cursor-crosshair"
+          className="w-full h-[150px] bg-slate-50 cursor-crosshair touch-none"
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={stopDrawing}
@@ -174,9 +175,10 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (VEILIG) ---
+// --- SLIMME AI MOTOR (VEILIG & STABIEL) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   let apiKey = "";
+  
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
   }
@@ -185,11 +187,11 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
   }
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de instellingen.");
+    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-2.5-flash"; 
+  const model = "gemini-1.5-flash"; // Stabiele motor voor productiesystemen
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -265,40 +267,48 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
-  // --- NATIVE GSM TERUG-KNOP ONDERSTEUNING ---
+  // --- NATIVE ROUTING: IOS SWIPE-BACK & ANDROID TERUG-KNOP ---
   useEffect(() => {
-    const handlePopState = (e) => {
-      // Sluit eventuele openstaande vensters
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+
+      // Zorg dat openstaande popups of menu's altijd netjes sluiten als we navigeren
       setShowAddModal(false);
       setProjectToDelete(null);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
       setIsChatOpen(false);
-      
-      // Als we in een project zitten, ga dan terug naar de lijst
-      if (activeView === "detail") {
+
+      if (hash.startsWith("#project-")) {
+        const id = hash.replace("#project-", "");
+        setSelectedProjectId(id);
+        setActiveView("detail");
+      } else {
         setActiveView("list");
         setSelectedProjectId(null);
       }
     };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [activeView]);
+
+    window.addEventListener("hashchange", handleHashChange);
+    // Controleer de URL bij het inladen
+    handleHashChange();
+
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
 
   const handleProjectClick = (id) => {
-    setSelectedProjectId(id);
-    setActiveView("detail");
-    window.history.pushState({ view: 'detail' }, '', '#project'); // Activeert de terug-knop
+    // Dit zet de native URL hash om, waardoor de telefoon het registreert in de geschiedenis
+    window.location.hash = `project-${id}`;
   };
 
   const handleBackToList = () => {
-    if (window.history.state && window.history.state.view === 'detail') {
-      window.history.back(); // Triggert de popstate functie hierboven
+    // Als de gebruiker via de knop teruggaat:
+    if (window.history.length > 1 && window.location.hash !== "") {
+      window.history.back(); // Triggert soepel de native browser logica
     } else {
-      setActiveView("list");
-      setSelectedProjectId(null);
+      window.location.hash = ""; // Fallback
     }
   };
-  // -------------------------------------------
+  // -----------------------------------------------------------
 
   useEffect(() => {
     const initData = async () => {
@@ -457,9 +467,11 @@ function App() {
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
     setShowAddModal(false);
+    window.location.hash = ""; // Reset URL 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
+  // --- KOGELVRIJE PLANNING SCANNER ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -490,71 +502,76 @@ function App() {
          throw new Error("Ongeldig bestandstype. Upload een foto of PDF.");
       }
       
-      const prompt = `Je bent een administratieve assistent. Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
-      Regels:
-      1. "id" (dossiernummer): Zoek naar een 4-cijferig getal.
-      2. "name" (klantnaam): Alleen de achternaam van de klant.
-      3. "date" (datum): Startdatum in "YYYY-MM-DD" formaat.
-      4. "duration" (duur): Bijv. "1 dag" of "2 dagen".
+      const prompt = `Lees deze projectplanning heel goed af. Extraheer alle projecten.
+      1. "id": Dossiernummer (vaak 4-cijferig getal).
+      2. "name": Klantnaam (alleen de achternaam).
+      3. "date": Startdatum in formaat "YYYY-MM-DD".
+      4. "duration": Duur (bijv. "1 dag" of "2 dagen").
       
-      CRUCIAAL:
-      - Als de afbeelding of PDF onleesbaar is, of er staan geen projecten op, retourneer dan EXACT een lege lijst: []
-      - Verzin NOOIT zelf namen en kopieer GEEN tekst uit deze prompt.
-      
-      Voorbeeld output: [{"id": "9999", "name": "VoorbeeldNaam", "date": "2099-12-31", "duration": "1 dag"}]`;
+      Geef UITSLUITEND een valide JSON array terug. Geen object eromheen, geen tekst ervoor of erna. 
+      Voorbeeld structuur: [{"id": "1234", "name": "Voorbeeld", "date": "2026-01-01", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       
-      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
+      let parsedRaw = null;
+      
       try { 
-        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        let cleanText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
+        const jsonMatch = cleanText.match(/\[[\s\S]*\]/);
+        
         if (jsonMatch) {
-            extractedData = JSON.parse(jsonMatch[0]);
+            parsedRaw = JSON.parse(jsonMatch[0]);
         } else {
-            extractedData = JSON.parse(aiText);
+            parsedRaw = JSON.parse(cleanText);
         }
       } catch (err) { 
-        throw new Error("AI kon de gegevens niet goed formatteren."); 
+        throw new Error("AI kon de gegevens niet formatteren. Probeer een duidelijkere scan."); 
       }
       
-      if (Array.isArray(extractedData)) {
-        if (extractedData.length === 0) {
-            throw new Error("Geen projecten gevonden in dit document.");
+      if (Array.isArray(parsedRaw)) {
+        extractedData = parsedRaw;
+      } else if (parsedRaw && typeof parsedRaw === 'object') {
+        const foundArray = Object.values(parsedRaw).find(v => Array.isArray(v));
+        if (foundArray) {
+            extractedData = foundArray;
+        } else {
+            extractedData = [parsedRaw]; 
         }
-
-        // HIER ZAT DE FOUT: Schraeyen is verwijderd, we checken nu op het nep-voorbeeld!
-        const isHallucination = extractedData.some(p => 
-            !p.name || 
-            p.name.includes("Je bent") || 
-            p.name.includes("Extraheer") || 
-            p.name.includes("VoorbeeldNaam") ||
-            p.name.length > 40
-        );
-
-        if (isHallucination) {
-            throw new Error("Het document was onleesbaar voor de AI. Probeer een duidelijkere scan of foto.");
-        }
-
-        const newProjects = extractedData.map((proj) => ({ 
-            id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, 
-            name: proj.name || "Onbekende Klant", 
-            date: proj.date || new Date().toISOString().split("T")[0], 
-            duration: proj.duration || "1 dag", 
-            status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), 
-            photos: [], 
-            notes: "", 
-            workHours: "", 
-            signature: null 
-        }));
-        
-        const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
-        await saveToDB(combined);
-        setProjects(combined);
-        showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
-      } else { 
-          throw new Error("Onbekend bestandsformaat geretourneerd door AI."); 
       }
+
+      if (!Array.isArray(extractedData) || extractedData.length === 0) {
+        throw new Error("Geen projecten gevonden in dit document.");
+      }
+
+      const isHallucination = extractedData.some(p => 
+          !p.name || 
+          p.name.includes("Je bent") || 
+          p.name.includes("Voorbeeld") ||
+          p.name.length > 40
+      );
+
+      if (isHallucination) {
+          throw new Error("Het document was te onduidelijk voor de AI. Probeer een betere foto of scan.");
+      }
+
+      const newProjects = extractedData.map((proj) => ({ 
+          id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, 
+          name: proj.name || "Onbekende Klant", 
+          date: proj.date || new Date().toISOString().split("T")[0], 
+          duration: proj.duration || "1 dag", 
+          status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), 
+          photos: [], 
+          notes: "", 
+          workHours: "", 
+          signature: null 
+      }));
+      
+      const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
+      await saveToDB(combined);
+      setProjects(combined);
+      showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
+
     } catch (error) { 
       showNotification(`AI Fout: ${error.message}`, "error"); 
     } finally { 
@@ -713,7 +730,7 @@ function App() {
                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Projecten</h2>
                 <p className="text-slate-500 text-sm">Beheer de keukeninstallaties van Goossens.</p>
               </div>
-              <button onClick={() => setShowAddModal(true)} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
+              <button onClick={() => { window.location.hash = "new-project"; setShowAddModal(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
                 <Plus size={20} /> Nieuw Project
               </button>
             </div>
@@ -838,8 +855,8 @@ function App() {
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => handleGenerateReport("snaglist")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
@@ -873,13 +890,13 @@ function App() {
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => window.history.back()} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
             <div className="p-6 overflow-y-auto flex-1 bg-white">
               {reportStatus === "loading" ? <div className="py-20 text-center space-y-4"><Loader2 className="animate-spin mx-auto text-blue-600" size={40} /><p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">AI stelt document op...</p></div> : (
                 <div className="space-y-4">
                   <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
                   <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
+                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => window.history.back()} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
                 </div>
               )}
             </div>
@@ -893,7 +910,7 @@ function App() {
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={() => window.history.back()} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
@@ -913,7 +930,7 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => { window.location.hash = activeProject ? `project-${activeProject.id}-chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
@@ -922,13 +939,13 @@ function App() {
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
           <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button></div>
+            <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => window.history.back()}><X size={20} /></button></div>
             <div className="p-6 space-y-4">
               <input type="text" placeholder="Naam Klant" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })} />
               <input type="text" placeholder="Dossiernummer" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({ ...newProjectData, id: e.target.value })} />
               <div className="grid grid-cols-2 gap-3"><input type="date" required className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({ ...newProjectData, date: e.target.value })} /><select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({ ...newProjectData, duration: e.target.value })}><option>1 dag</option><option>2 dagen</option><option>3 dagen</option></select></div>
             </div>
-            <div className="p-6 bg-slate-50 flex gap-3"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 font-bold text-slate-500 text-xs">Stop</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Opslaan</button></div>
+            <div className="p-6 bg-slate-50 flex gap-3"><button type="button" onClick={() => window.history.back()} className="flex-1 py-3 font-bold text-slate-500 text-xs">Stop</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Opslaan</button></div>
           </form>
         </div>
       )}
@@ -940,7 +957,7 @@ function App() {
             <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
             <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
             <p className="text-slate-500 text-sm mb-8">Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt wissen?</p>
-            <div className="flex gap-3"><button onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); setProjectToDelete(null); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
+            <div className="flex gap-3"><button onClick={() => window.history.back()} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); window.history.back(); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
           </div>
         </div>
       )}
