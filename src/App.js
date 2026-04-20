@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Fix: Witte achtergrond voor PDF/PNG bestanden
+      // Fix: Witte achtergrond voor PDF/PNG bestanden (voorkomt zwarte vlakken voor de AI)
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,28 +174,34 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (Met Zelfreinigende Sleutel) ---
+// --- SLIMME AI MOTOR ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   let rawKey = "";
   
-  // Detecteert automatisch of je Vite of standaard React (CRA) gebruikt
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    rawKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY || "";
-  }
-  if (!rawKey && typeof process !== 'undefined' && process.env) {
-    rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
-  }
+  // Brede vangnet-methode: Haalt de sleutel op ongeacht het platform (Vite of CRA)
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      rawKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY || "";
+    }
+  } catch(e) {}
+  
+  try {
+    if (!rawKey && typeof process !== 'undefined' && process.env) {
+      rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
+    }
+  } catch(e) {}
 
-  // DE OPLOSSING: We strippen álle onzichtbare spaties, enters (\n) en aanhalingstekens weg.
-  // Dit voorkomt 100% de "Failed to fetch" (door enters) en de "Invalid Key" (door aanhalingstekens) fouten.
-  const apiKey = rawKey.replace(/[\s\r\n'"]/g, "");
+  // De 'Zelfreinigende' functie: Stript alle onzichtbare spaties, enters of aanhalingstekens weg.
+  const apiKey = rawKey ? rawKey.replace(/['"\s\r\n]/g, "") : "";
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt. Vul hem in Netlify in en klik op 'Clear cache and deploy'.");
+    throw new Error("API Sleutel is onzichtbaar voor de app. Zorg dat je 'REACT_APP_GEMINI_API_KEY' in Netlify hebt staan.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; // De stabiele standaard voor productie
+  
+  // De betrouwbare, officiële Google motor (1.5). Versie 2.5 bestaat niet en weigert dienst.
+  const model = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -221,13 +227,16 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Fout bij Google API");
+    
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Google API weigerde de toegang.");
+    }
 
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
-    // Vangt de specifieke netwerk crash af zodat we precies weten of het aan de browser of connectie ligt.
+    // Vangt de gevreesde 'Failed to fetch' af die door AdBlockers of Netwerk-drops wordt veroorzaakt
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout: Kan de server niet bereiken. Controleer je internetverbinding of zet je AdBlocker tijdelijk uit.");
+      throw new Error("Netwerkfout: Kan Google niet bereiken. Controleer je internet of zet AdBlockers uit.");
     }
     throw error;
   }
