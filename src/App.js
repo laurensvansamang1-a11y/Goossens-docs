@@ -174,18 +174,28 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (Netlify Environment Variables Oplossing) ---
+// --- SLIMME AI MOTOR (Met Zelfreinigende Sleutel) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
+  let rawKey = "";
   
-  // De professionele manier: React leest de Netlify variabele tijdens het bouwen in.
-  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  // Detecteert automatisch of je Vite of standaard React (CRA) gebruikt
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    rawKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY || "";
+  }
+  if (!rawKey && typeof process !== 'undefined' && process.env) {
+    rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
+  }
+
+  // DE OPLOSSING: We strippen álle onzichtbare spaties, enters (\n) en aanhalingstekens weg.
+  // Dit voorkomt 100% de "Failed to fetch" (door enters) en de "Invalid Key" (door aanhalingstekens) fouten.
+  const apiKey = rawKey.replace(/[\s\r\n'"]/g, "");
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de code. Zorg dat je 'Clear cache and deploy' hebt geklikt in Netlify.");
+    throw new Error("API Sleutel ontbreekt. Vul hem in Netlify in en klik op 'Clear cache and deploy'.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; // Stabiel productiemodel
+  const model = "gemini-1.5-flash"; // De stabiele standaard voor productie
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -203,16 +213,24 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     };
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(apiBody)
-  });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(apiBody)
+    });
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || "Fout bij Google API");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || "Fout bij Google API");
 
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  } catch (error) {
+    // Vangt de specifieke netwerk crash af zodat we precies weten of het aan de browser of connectie ligt.
+    if (error.message.includes("Failed to fetch")) {
+      throw new Error("Netwerkfout: Kan de server niet bereiken. Controleer je internetverbinding of zet je AdBlocker tijdelijk uit.");
+    }
+    throw error;
+  }
 };
 
 function App() {
