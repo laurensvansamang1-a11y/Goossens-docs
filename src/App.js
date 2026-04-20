@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Fix: Voorkomt zwarte vlakken bij transparante PDF/PNG bestanden
+      // Zorgt ervoor dat transparante documenten (PDF/PNG) perfect wit worden ipv zwart
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,21 +174,21 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (Vrij van Syntax Errors) ---
+// --- SLIMME AI MOTOR (De Originele, Pure Methode) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   
-  // De enige juiste en veilige methode voor Create React App
+  // Lees de sleutel simpelweg uit via Netlify
   const rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
   
-  // Stript automatisch alle onzichtbare fouten (aanhalingstekens/spaties/enters) weg.
+  // Stript automatisch spaties, enters en aanhalingstekens weg
   const apiKey = rawKey.replace(/['"\s\r\n]/g, "");
 
   if (!apiKey) {
-    throw new Error("Geen API sleutel gevonden. Zorg dat REACT_APP_GEMINI_API_KEY is ingesteld in Netlify.");
+    throw new Error("Geen API sleutel gevonden in de code. Zorg dat de variabele in Netlify REACT_APP_GEMINI_API_KEY heet.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; // De stabiele standaard voor productie
+  const model = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -219,7 +219,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout. Controleer je internet of zet je VPN/AdBlocker uit.");
+      throw new Error("Netwerkfout. Check je internetverbinding of zet je AdBlocker tijdelijk uit.");
     }
     throw error;
   }
@@ -276,6 +276,7 @@ function App() {
     const handleHashChange = () => {
       const hash = window.location.hash;
 
+      // Sluit menu's enkel als de URL specifiek NIET naar dat menu wijst
       if (hash !== "#new-project") setShowAddModal(false);
       if (!hash.endsWith("/chat") && hash !== "#chat") setIsChatOpen(false);
       if (!hash.endsWith("/delete")) setProjectToDelete(null);
@@ -283,11 +284,13 @@ function App() {
         setReportConfig(prev => ({ ...prev, isOpen: false }));
       }
 
+      // Veilig ID extraheren met "/" zodat het niet in de war raakt met streepjes (PRJ-1234)
       if (hash.startsWith("#project/")) {
         const id = hash.replace("#project/", "").split("/")[0];
         setSelectedProjectId(id);
         setActiveView("detail");
       } else if (hash.startsWith("#project-") && !hash.includes("/")) {
+        // Fallback voor oude opgeslagen links
         const id = hash.replace("#project-", "");
         setSelectedProjectId(id);
         setActiveView("detail");
@@ -298,7 +301,7 @@ function App() {
     };
 
     window.addEventListener("hashchange", handleHashChange);
-    handleHashChange(); 
+    handleHashChange(); // Run direct bij opstarten
 
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
@@ -309,9 +312,9 @@ function App() {
 
   const handleBackToList = () => {
     if (window.history.length > 1 && window.location.hash !== "") {
-      window.history.back();
+      window.history.back(); // Native navigatie terug
     } else {
-      window.location.hash = ""; 
+      window.location.hash = ""; // Fallback naar lijst
     }
   };
   // --------------------------------------------------------------------
@@ -373,7 +376,7 @@ function App() {
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showNotification("Spraakherkenning wordt niet ondersteund.", "error");
+      showNotification("Spraakherkenning wordt niet ondersteund door deze browser.", "error");
       return;
     }
 
@@ -395,17 +398,23 @@ function App() {
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: newNotes } : p);
       await saveToDB(updated);
       setProjects(updated);
-      showNotification("🎙️ Notitie toegevoegd!", "success");
+      showNotification("🎙️ Notitie toegevoegd via spraak!", "success");
     };
     
     recognition.onerror = (e) => {
       setIsListening(false);
-      if(e.error === 'not-allowed') showNotification("Microfoon toegang geweigerd.", "error");
+      if(e.error === 'not-allowed') {
+        showNotification("Microfoon toegang geweigerd door browser.", "error");
+      }
     };
     recognition.onend = () => setIsListening(false);
     
-    try { recognition.start(); } 
-    catch (err) { setIsListening(false); showNotification("Kon microfoon niet starten.", "error"); }
+    try {
+      recognition.start();
+    } catch (err) {
+      setIsListening(false);
+      showNotification("Kon microfoon niet starten.", "error");
+    }
   };
 
   const handleUpdateStatus = async (newStatus) => {
@@ -443,7 +452,7 @@ function App() {
         const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         await saveToDB(updated);
         setProjects(updated);
-        showNotification(isOnline ? "Foto opgeslagen!" : "Lokaal bewaard (offline).", isOnline ? "success" : "error");
+        showNotification(isOnline ? "Foto direct opgeslagen!" : "Foto lokaal bewaard (geen internet).", isOnline ? "success" : "error");
       };
       reader.readAsDataURL(file);
     }
@@ -466,11 +475,10 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.history.back(); 
+    window.history.back(); // Sluit modal soepel via native history
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- KOGELVRIJE PLANNING SCANNER ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -551,7 +559,7 @@ function App() {
       );
 
       if (isHallucination) {
-          throw new Error("Het document was te onduidelijk voor de AI. Probeer een betere foto of scan.");
+          throw new Error("Document was onleesbaar voor de AI. Probeer een betere foto.");
       }
 
       const newProjects = extractedData.map((proj) => ({ 
