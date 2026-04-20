@@ -171,17 +171,11 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 
 // --- SLIMME AI MOTOR (VEILIG GEMAAKT VOOR VITE & NETLIFY) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  let apiKey = "";
-  
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
-  }
-  if (!apiKey && typeof process !== 'undefined' && process.env) {
-    apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  }
+  // Enkel deze manier is veilig in een Vite project:
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify en doe een nieuwe deploy.");
+    throw new Error("API Sleutel ontbreekt in de code. Zorg dat hij in Netlify 'VITE_GEMINI_API_KEY' heet.");
   }
 
   const hasAttachment = !!base64Data;
@@ -410,7 +404,7 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- VERNIEUWDE PLANNING SCANNER ZONDER STRIKTE 'LEGE LIJST' REGEL ---
+  // --- VERNIEUWDE PLANNING SCANNER ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -441,14 +435,18 @@ function App() {
          throw new Error("Ongeldig bestandstype. Upload een foto of PDF.");
       }
       
-      // De prompt is weer ontspannen, we laten de AI zijn best doen.
-      const prompt = `Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
+      const prompt = `Je bent een administratieve assistent. Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
       Regels:
-      1. "id" (dossiernummer): 4-cijferig getal uit kolom naast 'Plaatsing' of 'Inter'.
-      2. "name" (klantnaam): Alleen de achternaam uit de naam-kolom. Geen voornamen.
-      3. "date" (datum): Eerste (vroegste) startdatum in "YYYY-MM-DD" formaat.
-      4. "duration" (duur): Tel op hoeveel dagen dit dossiernummer voorkomt (bijv. "1 dag", "2 dagen").
-      Retourneer een zuivere JSON array. Voorbeeld: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
+      1. "id" (dossiernummer): Zoek naar een 4-cijferig getal.
+      2. "name" (klantnaam): Alleen de achternaam van de klant.
+      3. "date" (datum): Startdatum in "YYYY-MM-DD" formaat.
+      4. "duration" (duur): Bijv. "1 dag" of "2 dagen".
+      
+      CRUCIAAL:
+      - Als de afbeelding of PDF onleesbaar is, of er staan geen projecten op, retourneer dan EXACT een lege lijst: []
+      - Verzin NOOIT zelf namen en kopieer GEEN tekst uit deze prompt.
+      
+      Voorbeeld output: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       
@@ -461,18 +459,20 @@ function App() {
         if (match) extractedData = JSON.parse(match[0]); 
       }
       
-      if (Array.isArray(extractedData) && extractedData.length > 0) {
-        
-        // ONS EIGEN SLIMME FILTER: Voorkomt dat de AI zijn eigen tekst of ons voorbeeld herhaalt.
+      if (Array.isArray(extractedData)) {
+        if (extractedData.length === 0) {
+            throw new Error("Geen projecten gevonden in dit document.");
+        }
+
         const isHallucination = extractedData.some(p => 
             !p.name || 
-            (p.name.includes("Schraeyen") && p.id === "7987" && extractedData.length === 1) || 
-            p.name.includes("Lees deze") || 
-            p.name.length > 30
+            p.name.includes("Je bent") || 
+            p.name.includes("Extraheer") || 
+            p.name.length > 40
         );
 
         if (isHallucination) {
-            throw new Error("Het document was te onduidelijk voor de AI. Probeer een betere foto of scan.");
+            throw new Error("Het document was onleesbaar voor de AI. Probeer een duidelijkere scan of foto.");
         }
 
         const newProjects = extractedData.map((proj) => ({ 
@@ -492,7 +492,7 @@ function App() {
         setProjects(combined);
         showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
       } else { 
-        throw new Error("Kon geen leesbare projecten vinden in dit document."); 
+          throw new Error("Onbekend bestandsformaat geretourneerd door AI."); 
       }
     } catch (error) { 
       showNotification(`AI Fout: ${error.message}`, "error"); 
