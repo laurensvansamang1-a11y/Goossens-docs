@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Essentieel: Vul achtergrond met wit zodat transparante PDF/PNG niet zwart wordt.
+      // Fix voor transparante PDF's/PNG's (Voorkomt zwarte vlakken)
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -145,7 +145,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     }
   };
 
-  // 'touch-none' voorkomt dat de pagina scrolt terwijl de klant tekent op iOS/Android
   return (
     <div className="space-y-3 print:hidden">
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
@@ -178,15 +177,17 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 // --- SLIMME AI MOTOR ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   
-  // DIT IS DE ENIGE JUISTE MANIER VOOR JOUW APP (Zonder veiligheidschecks die de sleutel blokkeren!)
-  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  let rawApiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  
+  // VEILIGHEIDSNET: Knipt automatisch alle aanhalingstekens en spaties van je sleutel af!
+  let apiKey = rawApiKey ? rawApiKey.replace(/['"]/g, '').trim() : "";
 
-  if (!apiKey) {
-    throw new Error("API Sleutel is leeg of ontbreekt. Check je Netlify variabelen en doe een Clear Cache & Deploy.");
+  if (!apiKey || apiKey === "undefined" || apiKey === "") {
+    throw new Error("De API Sleutel wordt niet gevonden door de app. Controleer Netlify variabelen.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; // Stabiele motor voor productiesystemen
+  const model = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -296,7 +297,7 @@ function App() {
   };
 
   const handleBackToList = () => {
-    // Als de gebruiker via de knop teruggaat:
+    // Als de gebruiker via de App-knop teruggaat:
     if (window.history.length > 1 && window.location.hash !== "") {
       window.history.back(); // Triggert soepel de native browser logica
     } else {
@@ -461,8 +462,7 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    setShowAddModal(false);
-    window.location.hash = ""; // Reset URL 
+    window.location.hash = ""; // Sluit modal en gaat terug
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
@@ -591,7 +591,9 @@ function App() {
          Formatteer de mail netjes in vloeiend Nederlands.` 
       : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
     
-    setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
+    setReportStatus("loading"); 
+    setReportConfig({ isOpen: true, type, title });
+    window.location.hash = `project-${activeProject.id}-report`; // Native back button support
     
     try {
       const text = await executeAI(promptText);
@@ -599,6 +601,7 @@ function App() {
       setReportStatus("success");
     } catch (error) { 
       setReportConfig({ ...reportConfig, isOpen: false });
+      window.history.back(); // Undo de hash bij een fout
       showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
@@ -778,7 +781,7 @@ function App() {
                       <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => setProjectToDelete(activeProject)} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project-${activeProject.id}-delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                       <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                     </div>
                   </div>
@@ -850,8 +853,8 @@ function App() {
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                    <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => handleGenerateReport("snaglist")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
