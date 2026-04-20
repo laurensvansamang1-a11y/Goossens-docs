@@ -59,7 +59,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   });
 };
 
-// --- DIGITALE HANDTEKENING COMPONENT ---
+// --- DIGITALE HANDTEKENING COMPONENT (GEFIXED VOOR PC & MOBIEL) ---
 const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -70,21 +70,29 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     if (canvas && initialSignature) {
       const ctx = canvas.getContext("2d");
       const img = new Image();
-      img.onload = () => ctx.drawImage(img, 0, 0);
+      img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       img.src = initialSignature;
     }
   }, [initialSignature]);
 
-  // Haal nauwkeurige coördinaten op, corrigeert offset voor schermen op PC/Mobiel
+  // STAP 1: De perfecte coördinaten berekening
   const getCoords = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
-    
+    let clientX, clientY;
+
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    // Lost het PC-muis probleem op door breedte/weergave te berekenen
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    
+
     return {
       x: (clientX - rect.left) * scaleX,
       y: (clientY - rect.top) * scaleY
@@ -109,7 +117,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     const { x, y } = getCoords(e);
     ctx.lineTo(x, y);
     ctx.stroke();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3; // Lijn iets dikker gemaakt voor betere leesbaarheid
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
   };
@@ -139,8 +147,8 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
         <canvas
           ref={canvasRef}
-          width={300}
-          height={150}
+          width={600} // Interne resolutie verhoogd voor scherpere handtekening
+          height={300}
           className="w-full h-[150px] bg-slate-50 cursor-crosshair"
           onMouseDown={startDrawing}
           onMouseMove={draw}
@@ -151,7 +159,8 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
           onTouchEnd={stopDrawing}
         />
       </div>
-      <div className="flex justify-between items-center gap-3 px-1 mt-2">
+      {/* STAP 2: Knoppen staan nu mooi onder elkaar op gsm (flex-col) en naast elkaar op PC (sm:flex-row) */}
+      <div className="flex flex-col sm:flex-row justify-between items-stretch gap-3 mt-2">
         <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
           <Eraser size={18} /> Wissen
         </button>
@@ -679,7 +688,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* HANDTEKENING */}
+                  {/* HANDTEKENING: Zichtbaar bij Afgewerkt EN Service Nodig */}
                   {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
                     <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
@@ -716,7 +725,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* AI ACTIES */}
+                {/* AI ACTIES (OOK ALS AFGEWERKT OF SERVICE NODIG GEKOZEN IS) */}
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -725,7 +734,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* FOTO DOCUMENTATIE HIERONDER VERBORGEN BIJ PRINTEN */}
                 <div className="space-y-4 print:hidden">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
                   {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
