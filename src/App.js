@@ -35,7 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- AFBEELDINGSCOMPRESSOR (Snelheid & Geheugenbesparing) ---
+// --- AFBEELDINGSCOMPRESSOR MET TRANSPARANTIE-FIX ---
 const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -53,6 +53,11 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
+      
+      // VEILIGHEID: Vul achtergrond met wit om zwarte vlakken bij transparante PNG/PDF te voorkomen
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
       ctx.drawImage(img, 0, 0, width, height);
       resolve(canvas.toDataURL("image/jpeg", quality));
     };
@@ -171,11 +176,17 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 
 // --- SLIMME AI MOTOR (VEILIG GEMAAKT VOOR VITE & NETLIFY) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  // Enkel deze manier is veilig in een Vite project:
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  let apiKey = "";
+  
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
+  }
+  if (!apiKey && typeof process !== 'undefined' && process.env) {
+    apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  }
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de code. Zorg dat hij in Netlify 'VITE_GEMINI_API_KEY' heet.");
+    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify.");
   }
 
   const hasAttachment = !!base64Data;
@@ -336,10 +347,21 @@ function App() {
       setProjects(updated);
       showNotification("🎙️ Notitie toegevoegd via spraak!", "success");
     };
-    recognition.onerror = () => setIsListening(false);
+    
+    recognition.onerror = (e) => {
+      setIsListening(false);
+      if(e.error === 'not-allowed') {
+        showNotification("Microfoon toegang geweigerd door browser.", "error");
+      }
+    };
     recognition.onend = () => setIsListening(false);
     
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (err) {
+      setIsListening(false);
+      showNotification("Kon microfoon niet starten.", "error");
+    }
   };
 
   const handleUpdateStatus = async (newStatus) => {
@@ -404,7 +426,7 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- VERNIEUWDE PLANNING SCANNER ---
+  // --- VERNIEUWDE PLANNING SCANNER MET SLIMME REGEX ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -450,13 +472,17 @@ function App() {
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       
-      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
+      // VEILIGHEID: Slimmere Regex die ALTIJD het lijstje vindt, zelfs als de AI kletst
       let extractedData = [];
-      try { 
-        extractedData = JSON.parse(aiText); 
-      } catch (err) { 
-        const match = aiText.match(/\[[\s\S]*\]/); 
-        if (match) extractedData = JSON.parse(match[0]); 
+      try {
+        const jsonMatch = aiText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            extractedData = JSON.parse(jsonMatch[0]);
+        } else {
+            extractedData = JSON.parse(aiText);
+        }
+      } catch (err) {
+        throw new Error("AI gaf onleesbare data terug.");
       }
       
       if (Array.isArray(extractedData)) {
