@@ -175,19 +175,14 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (VEILIG & STABIEL) ---
+// --- SLIMME AI MOTOR ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  let apiKey = "";
   
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
-  }
-  if (!apiKey && typeof process !== 'undefined' && process.env) {
-    apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  }
+  // DIT IS DE ENIGE JUISTE MANIER VOOR JOUW APP (Zonder veiligheidschecks die de sleutel blokkeren!)
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify.");
+    throw new Error("API Sleutel is leeg of ontbreekt. Check je Netlify variabelen en doe een Clear Cache & Deploy.");
   }
 
   const hasAttachment = !!base64Data;
