@@ -35,7 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- AFBEELDINGSCOMPRESSOR MET TRANSPARANTIE-FIX ---
+// --- AFBEELDINGSCOMPRESSOR ---
 const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // VEILIGHEID: Vul achtergrond met wit om zwarte vlakken bij transparante PNG/PDF te voorkomen
+      // Voorkomt zwarte achtergrond bij transparante bestanden (PDF/PNG)
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,10 +174,9 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (VEILIG GEMAAKT VOOR VITE & NETLIFY) ---
+// --- SLIMME AI MOTOR (VEILIG) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   let apiKey = "";
-  
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
   }
@@ -186,7 +185,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
   }
 
   if (!apiKey) {
-    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify.");
+    throw new Error("API Sleutel ontbreekt in de instellingen.");
   }
 
   const hasAttachment = !!base64Data;
@@ -265,6 +264,41 @@ function App() {
     const today = new Date().toISOString().split("T")[0];
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
+
+  // --- NATIVE GSM TERUG-KNOP ONDERSTEUNING ---
+  useEffect(() => {
+    const handlePopState = (e) => {
+      // Sluit eventuele openstaande vensters
+      setShowAddModal(false);
+      setProjectToDelete(null);
+      setReportConfig(prev => ({ ...prev, isOpen: false }));
+      setIsChatOpen(false);
+      
+      // Als we in een project zitten, ga dan terug naar de lijst
+      if (activeView === "detail") {
+        setActiveView("list");
+        setSelectedProjectId(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeView]);
+
+  const handleProjectClick = (id) => {
+    setSelectedProjectId(id);
+    setActiveView("detail");
+    window.history.pushState({ view: 'detail' }, '', '#project'); // Activeert de terug-knop
+  };
+
+  const handleBackToList = () => {
+    if (window.history.state && window.history.state.view === 'detail') {
+      window.history.back(); // Triggert de popstate functie hierboven
+    } else {
+      setActiveView("list");
+      setSelectedProjectId(null);
+    }
+  };
+  // -------------------------------------------
 
   useEffect(() => {
     const initData = async () => {
@@ -426,7 +460,6 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- VERNIEUWDE PLANNING SCANNER MET SLIMME REGEX ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -468,21 +501,21 @@ function App() {
       - Als de afbeelding of PDF onleesbaar is, of er staan geen projecten op, retourneer dan EXACT een lege lijst: []
       - Verzin NOOIT zelf namen en kopieer GEEN tekst uit deze prompt.
       
-      Voorbeeld output: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
+      Voorbeeld output: [{"id": "9999", "name": "VoorbeeldNaam", "date": "2099-12-31", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       
-      // VEILIGHEID: Slimmere Regex die ALTIJD het lijstje vindt, zelfs als de AI kletst
+      aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
-      try {
+      try { 
         const jsonMatch = aiText.match(/\[[\s\S]*\]/);
         if (jsonMatch) {
             extractedData = JSON.parse(jsonMatch[0]);
         } else {
             extractedData = JSON.parse(aiText);
         }
-      } catch (err) {
-        throw new Error("AI gaf onleesbare data terug.");
+      } catch (err) { 
+        throw new Error("AI kon de gegevens niet goed formatteren."); 
       }
       
       if (Array.isArray(extractedData)) {
@@ -490,10 +523,12 @@ function App() {
             throw new Error("Geen projecten gevonden in dit document.");
         }
 
+        // HIER ZAT DE FOUT: Schraeyen is verwijderd, we checken nu op het nep-voorbeeld!
         const isHallucination = extractedData.some(p => 
             !p.name || 
             p.name.includes("Je bent") || 
             p.name.includes("Extraheer") || 
+            p.name.includes("VoorbeeldNaam") ||
             p.name.length > 40
         );
 
@@ -688,7 +723,7 @@ function App() {
             </div>
             <div className="grid gap-4 mt-6">
               {filteredProjects.length > 0 ? filteredProjects.map((p) => (
-                <div key={p.id} onClick={() => { setSelectedProjectId(p.id); setActiveView("detail"); }} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div key={p.id} onClick={() => handleProjectClick(p.id)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div className="space-y-1 flex-1">
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
                       <h3 className="font-bold text-lg sm:text-xl text-slate-800">{p.name}</h3>
@@ -715,7 +750,7 @@ function App() {
             <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
               
               <div className="flex justify-between items-center print:hidden">
-                <button onClick={() => setActiveView("list")} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
+                <button onClick={handleBackToList} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
                   <ChevronLeft size={24} /> Terug
                 </button>
                 <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
