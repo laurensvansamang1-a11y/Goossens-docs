@@ -75,7 +75,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     }
   }, [initialSignature]);
 
-  // STAP 1: De perfecte coördinaten berekening
   const getCoords = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -89,7 +88,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
       clientY = e.clientY;
     }
 
-    // Lost het PC-muis probleem op door breedte/weergave te berekenen
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
@@ -117,7 +115,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     const { x, y } = getCoords(e);
     ctx.lineTo(x, y);
     ctx.stroke();
-    ctx.lineWidth = 3; // Lijn iets dikker gemaakt voor betere leesbaarheid
+    ctx.lineWidth = 3; 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
   };
@@ -147,7 +145,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
         <canvas
           ref={canvasRef}
-          width={600} // Interne resolutie verhoogd voor scherpere handtekening
+          width={600} 
           height={300}
           className="w-full h-[150px] bg-slate-50 cursor-crosshair"
           onMouseDown={startDrawing}
@@ -159,7 +157,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
           onTouchEnd={stopDrawing}
         />
       </div>
-      {/* STAP 2: Knoppen staan nu mooi onder elkaar op gsm (flex-col) en naast elkaar op PC (sm:flex-row) */}
       <div className="flex flex-col sm:flex-row justify-between items-stretch gap-3 mt-2">
         <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
           <Eraser size={18} /> Wissen
@@ -177,14 +174,14 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
   const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Sleutel ontbreekt in Netlify instellingen.");
 
-  const isImage = !!base64Data;
+  const hasAttachment = !!base64Data;
   const model = "gemini-2.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
 
   let apiBody;
-  if (isImage) {
+  if (hasAttachment) {
     apiBody = {
       contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
       generationConfig
@@ -311,7 +308,7 @@ function App() {
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showNotification("Spraakherkenning niet ondersteund door deze browser.", "error");
+      showNotification("Spraakherkenning wordt niet ondersteund door deze browser.", "error");
       return;
     }
 
@@ -403,11 +400,15 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
+  // --- VERNIEUWDE PLANNING SCANNER (FOTO & PDF) ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     setIsMagicLoading(true);
-    showNotification("🕵️‍♂️ Planning wordt geanalyseerd...", "success");
+    
+    const isPDF = file.type.includes('pdf');
+    showNotification(`🕵️‍♂️ Planning (${isPDF ? 'PDF' : 'Foto'}) wordt geanalyseerd...`, "success");
+    
     try {
       const base64Url = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -416,9 +417,21 @@ function App() {
         reader.readAsDataURL(file);
       });
 
-      const compressedImage = await compressImage(base64Url, 1600, 0.7);
-      const mimeType = "image/jpeg";
-      const base64Data = compressedImage.split(",")[1];
+      let finalBase64Data = "";
+      let finalMimeType = file.type || "application/pdf"; // Fallback voor het geval het type leeg is
+
+      // De Slimme Verkeersregelaar
+      if (isPDF) {
+        // PDF: Sla de beeldcompressor over, stuur direct naar de Gemini API
+        finalBase64Data = base64Url.split(",")[1];
+      } else if (finalMimeType.includes('image')) {
+        // Afbeelding: Haal eerst door de snelle compressor om crashen te voorkomen
+        const compressedImage = await compressImage(base64Url, 1600, 0.7);
+        finalBase64Data = compressedImage.split(",")[1];
+        finalMimeType = "image/jpeg";
+      } else {
+         throw new Error("Ongeldig bestandstype. Upload een foto of PDF.");
+      }
       
       const prompt = `Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
       Regels:
@@ -428,7 +441,7 @@ function App() {
       4. "duration" (duur): Tel op hoeveel dagen dit dossiernummer voorkomt (bijv. "1 dag", "2 dagen").
       Retourneer een zuivere JSON array. Voorbeeld: [{"id": "7987", "name": "Schraeyen", "date": "2026-04-20", "duration": "1 dag"}]`;
       
-      let aiText = await executeAI(prompt, mimeType, base64Data, true);
+      let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       
       aiText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
       let extractedData = [];
@@ -445,7 +458,7 @@ function App() {
         await saveToDB(combined);
         setProjects(combined);
         showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
-      } else { showNotification("Kon geen projecten vinden op foto.", "error"); }
+      } else { showNotification("Kon geen projecten vinden in dit bestand.", "error"); }
     } catch (error) { 
       showNotification(`AI Fout: ${error.message}`, "error"); 
     } finally { 
@@ -587,7 +600,8 @@ function App() {
           </div>
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
-        <input type="file" ref={magicUploadRef} className="hidden" accept="image/*" onChange={handleMagicUpload} />
+        {/* HIER ZIT DE AANPASSING VOOR PDF UPLOADS */}
+        <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
       </header>
 
       {/* PRINT HEADER */}
