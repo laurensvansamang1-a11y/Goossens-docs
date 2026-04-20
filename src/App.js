@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Fix voor transparante PDF's/PNG's (Voorkomt zwarte vlakken)
+      // Fix: Witte achtergrond voor PDF/PNG bestanden
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,20 +174,18 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR ---
+// --- SLIMME AI MOTOR (Netlify Environment Variables Oplossing) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   
-  let rawApiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  
-  // VEILIGHEIDSNET: Knipt automatisch alle aanhalingstekens en spaties van je sleutel af!
-  let apiKey = rawApiKey ? rawApiKey.replace(/['"]/g, '').trim() : "";
+  // De professionele manier: React leest de Netlify variabele tijdens het bouwen in.
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
 
-  if (!apiKey || apiKey === "undefined" || apiKey === "") {
-    throw new Error("De API Sleutel wordt niet gevonden door de app. Controleer Netlify variabelen.");
+  if (!apiKey) {
+    throw new Error("API Sleutel ontbreekt in de code. Zorg dat je 'Clear cache and deploy' hebt geklikt in Netlify.");
   }
 
   const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; 
+  const model = "gemini-1.5-flash"; // Stabiel productiemodel
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -268,7 +266,6 @@ function App() {
     const handleHashChange = () => {
       const hash = window.location.hash;
 
-      // Zorg dat openstaande popups of menu's altijd netjes sluiten als we navigeren
       setShowAddModal(false);
       setProjectToDelete(null);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
@@ -285,23 +282,20 @@ function App() {
     };
 
     window.addEventListener("hashchange", handleHashChange);
-    // Controleer de URL bij het inladen
     handleHashChange();
 
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   const handleProjectClick = (id) => {
-    // Dit zet de native URL hash om, waardoor de telefoon het registreert in de geschiedenis
     window.location.hash = `project-${id}`;
   };
 
   const handleBackToList = () => {
-    // Als de gebruiker via de App-knop teruggaat:
     if (window.history.length > 1 && window.location.hash !== "") {
-      window.history.back(); // Triggert soepel de native browser logica
+      window.history.back();
     } else {
-      window.location.hash = ""; // Fallback
+      window.location.hash = ""; 
     }
   };
   // -----------------------------------------------------------
@@ -462,7 +456,7 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.location.hash = ""; // Sluit modal en gaat terug
+    window.location.hash = ""; 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
@@ -593,7 +587,7 @@ function App() {
     
     setReportStatus("loading"); 
     setReportConfig({ isOpen: true, type, title });
-    window.location.hash = `project-${activeProject.id}-report`; // Native back button support
+    window.location.hash = `project-${activeProject.id}-report`; 
     
     try {
       const text = await executeAI(promptText);
@@ -601,7 +595,7 @@ function App() {
       setReportStatus("success");
     } catch (error) { 
       setReportConfig({ ...reportConfig, isOpen: false });
-      window.history.back(); // Undo de hash bij een fout
+      window.history.back();
       showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
@@ -853,8 +847,8 @@ function App() {
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => handleGenerateReport("snaglist")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
