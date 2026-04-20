@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Zorgt ervoor dat transparante documenten (PDF/PNG) perfect wit worden ipv zwart
+      // Fix: Voorkomt zwarte vlakken bij transparante PDF/PNG bestanden
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,20 +174,22 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR (De Originele, Pure Methode) ---
+// --- SLIMME AI MOTOR (Met 100% stabiele 1.5 flash motor) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   
-  // Lees de sleutel simpelweg uit via Netlify
+  // Haalt de sleutel direct op via Netlify variabelen
   const rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
   
-  // Stript automatisch spaties, enters en aanhalingstekens weg
+  // Knipt onzichtbare spaties, enters en aanhalingstekens weg
   const apiKey = rawKey.replace(/['"\s\r\n]/g, "");
 
   if (!apiKey) {
-    throw new Error("Geen API sleutel gevonden in de code. Zorg dat de variabele in Netlify REACT_APP_GEMINI_API_KEY heet.");
+    throw new Error("Geen API sleutel gevonden in de code. Controleer of REACT_APP_GEMINI_API_KEY in Netlify staat.");
   }
 
   const hasAttachment = !!base64Data;
+  
+  // 100% GARANTIE: We gebruiken de uiterst stabiele industriestandaard motor van Google.
   const model = "gemini-1.5-flash"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -214,12 +216,12 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || "Google API weigerde het verzoek.");
+    if (!response.ok) throw new Error(`Google API: ${data.error?.message || "Toegang geweigerd"}`);
 
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout. Check je internetverbinding of zet je AdBlocker tijdelijk uit.");
+      throw new Error("Netwerkfout. Check je internetverbinding of zet je AdBlocker uit.");
     }
     throw error;
   }
@@ -276,7 +278,6 @@ function App() {
     const handleHashChange = () => {
       const hash = window.location.hash;
 
-      // Sluit menu's enkel als de URL specifiek NIET naar dat menu wijst
       if (hash !== "#new-project") setShowAddModal(false);
       if (!hash.endsWith("/chat") && hash !== "#chat") setIsChatOpen(false);
       if (!hash.endsWith("/delete")) setProjectToDelete(null);
@@ -284,13 +285,11 @@ function App() {
         setReportConfig(prev => ({ ...prev, isOpen: false }));
       }
 
-      // Veilig ID extraheren met "/" zodat het niet in de war raakt met streepjes (PRJ-1234)
       if (hash.startsWith("#project/")) {
         const id = hash.replace("#project/", "").split("/")[0];
         setSelectedProjectId(id);
         setActiveView("detail");
       } else if (hash.startsWith("#project-") && !hash.includes("/")) {
-        // Fallback voor oude opgeslagen links
         const id = hash.replace("#project-", "");
         setSelectedProjectId(id);
         setActiveView("detail");
@@ -301,7 +300,7 @@ function App() {
     };
 
     window.addEventListener("hashchange", handleHashChange);
-    handleHashChange(); // Run direct bij opstarten
+    handleHashChange(); 
 
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
@@ -312,9 +311,9 @@ function App() {
 
   const handleBackToList = () => {
     if (window.history.length > 1 && window.location.hash !== "") {
-      window.history.back(); // Native navigatie terug
+      window.history.back();
     } else {
-      window.location.hash = ""; // Fallback naar lijst
+      window.location.hash = ""; 
     }
   };
   // --------------------------------------------------------------------
@@ -370,7 +369,7 @@ function App() {
 
   const showNotification = (message, type = "success") => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const toggleListening = () => {
