@@ -59,7 +59,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   });
 };
 
-// --- DIGITALE HANDTEKENING COMPONENT (GEFIXED VOOR PC & MOBIEL) ---
+// --- DIGITALE HANDTEKENING COMPONENT ---
 const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -169,10 +169,22 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR ---
+// --- SLIMME AI MOTOR (VEILIG GEMAAKT VOOR VITE & NETLIFY) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("API Sleutel ontbreekt in Netlify instellingen.");
+  let apiKey = "";
+  
+  // Veilige check voor moderne systemen (zoals Vite)
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
+  }
+  // Veilige check voor oudere systemen (Create React App) als fallback
+  if (!apiKey && typeof process !== 'undefined' && process.env) {
+    apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+  }
+
+  if (!apiKey) {
+    throw new Error("API Sleutel ontbreekt in de code. Controleer de variabelen in Netlify en doe een nieuwe deploy.");
+  }
 
   const hasAttachment = !!base64Data;
   const model = "gemini-2.5-flash"; 
@@ -400,7 +412,6 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- VERNIEUWDE PLANNING SCANNER (FOTO & PDF) ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -418,14 +429,11 @@ function App() {
       });
 
       let finalBase64Data = "";
-      let finalMimeType = file.type || "application/pdf"; // Fallback voor het geval het type leeg is
+      let finalMimeType = file.type || "application/pdf"; 
 
-      // De Slimme Verkeersregelaar
       if (isPDF) {
-        // PDF: Sla de beeldcompressor over, stuur direct naar de Gemini API
         finalBase64Data = base64Url.split(",")[1];
       } else if (finalMimeType.includes('image')) {
-        // Afbeelding: Haal eerst door de snelle compressor om crashen te voorkomen
         const compressedImage = await compressImage(base64Url, 1600, 0.7);
         finalBase64Data = compressedImage.split(",")[1];
         finalMimeType = "image/jpeg";
@@ -600,7 +608,6 @@ function App() {
           </div>
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
-        {/* HIER ZIT DE AANPASSING VOOR PDF UPLOADS */}
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
       </header>
 
@@ -702,7 +709,7 @@ function App() {
                     </div>
                   )}
 
-                  {/* HANDTEKENING: Zichtbaar bij Afgewerkt EN Service Nodig */}
+                  {/* HANDTEKENING */}
                   {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
                     <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
@@ -739,7 +746,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* AI ACTIES (OOK ALS AFGEWERKT OF SERVICE NODIG GEKOZEN IS) */}
+                {/* AI ACTIES */}
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
