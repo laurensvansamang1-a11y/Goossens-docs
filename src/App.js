@@ -60,17 +60,41 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
 };
 
 // --- DIGITALE HANDTEKENING COMPONENT ---
-const SignaturePad = ({ onSave, onClear }) => {
+const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasDrawn, setHasDrawn] = useState(false);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas && initialSignature) {
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0);
+      img.src = initialSignature;
+    }
+  }, [initialSignature]);
+
+  // Haal nauwkeurige coördinaten op, corrigeert offset voor schermen op PC/Mobiel
+  const getCoords = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches && e.touches.length > 0 ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches && e.touches.length > 0 ? e.touches[0].clientY : e.clientY;
+    
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || (e.touches ? e.touches[0].clientX : 0)) - rect.left;
-    const y = (e.clientY || (e.touches ? e.touches[0].clientY : 0)) - rect.top;
+    const { x, y } = getCoords(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
     setIsDrawing(true);
@@ -82,9 +106,7 @@ const SignaturePad = ({ onSave, onClear }) => {
     e.preventDefault(); 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX || (e.touches ? e.touches[0].clientX : 0)) - rect.left;
-    const y = (e.clientY || (e.touches ? e.touches[0].clientY : 0)) - rect.top;
+    const { x, y } = getCoords(e);
     ctx.lineTo(x, y);
     ctx.stroke();
     ctx.lineWidth = 2;
@@ -129,12 +151,12 @@ const SignaturePad = ({ onSave, onClear }) => {
           onTouchEnd={stopDrawing}
         />
       </div>
-      <div className="flex justify-between items-center px-1">
-        <button onClick={clearSignature} type="button" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
-          <Eraser size={16} /> Wissen
+      <div className="flex justify-between items-center gap-3 px-1 mt-2">
+        <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
+          <Eraser size={18} /> Wissen
         </button>
-        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm">
-          <Check size={16} /> Bevestigen
+        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm">
+          <Check size={18} /> Bevestigen
         </button>
       </div>
     </div>
@@ -423,11 +445,9 @@ function App() {
     }
   };
 
-  // --- VERNIEUWDE AI E-MAIL LOGICA ---
   const handleGenerateReport = async (type) => {
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
     
-    // AANGEPASTE PROMPT: Extreem specifiek om het woord 'servicebezoek' en de specifieke punten te vermijden.
     const promptText = type === "email" 
       ? `Schrijf een korte, professionele en warme e-mail naar de klant (${activeProject.name}). 
          Context: De keukenplaatser heeft zojuist de plaatsing op de werf afgerond, maar er zijn nog enkele servicepunten genoteerd die nog moeten gebeuren.
@@ -659,13 +679,13 @@ function App() {
                     </div>
                   )}
 
-                  {/* HANDTEKENING: Zichtbaar bij Afgewerkt EN Service Nodig */}
+                  {/* HANDTEKENING */}
                   {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
                     <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
                       <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
                       
                       {!activeProject.signature ? (
-                        <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} />
+                        <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} initialSignature={activeProject.signature} />
                       ) : (
                         <div className="space-y-3">
                           <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b-2 border-slate-800 print:border-black" />
@@ -696,7 +716,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* AI ACTIES (OOK ALS AFGEWERKT OF SERVICE NODIG GEKOZEN IS) */}
+                {/* AI ACTIES */}
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -705,19 +725,20 @@ function App() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                {/* FOTO DOCUMENTATIE HIERONDER VERBORGEN BIJ PRINTEN */}
+                <div className="space-y-4 print:hidden">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
-                  {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm print:hidden">Geen foto's in deze map.</div> : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 print:grid-cols-2 print:gap-2">
+                  {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {activeProject.photos.map((ph) => (
-                        <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm print:break-inside-avoid print:bg-white">
-                          <div className="relative aspect-video print:aspect-auto">
-                            <img src={ph.url} className="w-full h-full object-cover print:max-h-48 print:object-contain" alt="Werffoto" />
-                            <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm print:hidden" title="Verwijder foto"><Trash2 size={16} /></button>
+                        <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
+                          <div className="relative aspect-video">
+                            <img src={ph.url} className="w-full h-full object-cover" alt="Werffoto" />
+                            <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm" title="Verwijder foto"><Trash2 size={16} /></button>
                           </div>
-                          <div className="p-4 space-y-3 print:p-2">
-                            {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2 print:bg-transparent print:border-slate-200 print:text-slate-700"><Sparkles size={12} className="shrink-0 text-purple-400 print:hidden" /> {ph.aiCaption}</div> : (
-                              <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50 print:hidden">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
+                          <div className="p-4 space-y-3">
+                            {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
+                              <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
                             )}
                           </div>
                         </div>
