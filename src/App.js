@@ -54,7 +54,7 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       
-      // Fix: Witte achtergrond voor PDF/PNG bestanden (voorkomt zwarte vlakken voor de AI)
+      // Fix: Voorkomt zwarte vlakken bij transparante PDF/PNG bestanden
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
@@ -174,11 +174,10 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- SLIMME AI MOTOR ---
+// --- SLIMME AI MOTOR (Met Anti-Aanhalingstekens Schoonmaak) ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   let rawKey = "";
   
-  // Brede vangnet-methode: Haalt de sleutel op ongeacht het platform (Vite of CRA)
   try {
     if (typeof import.meta !== 'undefined' && import.meta.env) {
       rawKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY || "";
@@ -191,17 +190,15 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     }
   } catch(e) {}
 
-  // De 'Zelfreinigende' functie: Stript alle onzichtbare spaties, enters of aanhalingstekens weg.
+  // DIT LOST HET OP: Snijdt automatisch alle 'onzichtbare' fouten (aanhalingstekens/spaties) weg.
   const apiKey = rawKey ? rawKey.replace(/['"\s\r\n]/g, "") : "";
 
   if (!apiKey) {
-    throw new Error("API Sleutel is onzichtbaar voor de app. Zorg dat je 'REACT_APP_GEMINI_API_KEY' in Netlify hebt staan.");
+    throw new Error("Geen API sleutel gevonden. Controleer Netlify instellingen.");
   }
 
   const hasAttachment = !!base64Data;
-  
-  // De betrouwbare, officiële Google motor (1.5). Versie 2.5 bestaat niet en weigert dienst.
-  const model = "gemini-1.5-flash"; 
+  const model = "gemini-1.5-flash"; // De stabiele standaard voor productie
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -227,16 +224,12 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     });
 
     const data = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(data.error?.message || "Google API weigerde de toegang.");
-    }
+    if (!response.ok) throw new Error(data.error?.message || "Google API weigerde het verzoek.");
 
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
-    // Vangt de gevreesde 'Failed to fetch' af die door AdBlockers of Netwerk-drops wordt veroorzaakt
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout: Kan Google niet bereiken. Controleer je internet of zet AdBlockers uit.");
+      throw new Error("Netwerkfout. Check je internet of zet adblockers/VPN uit.");
     }
     throw error;
   }
@@ -293,29 +286,35 @@ function App() {
     const handleHashChange = () => {
       const hash = window.location.hash;
 
-      setShowAddModal(false);
-      setProjectToDelete(null);
-      setReportConfig(prev => ({ ...prev, isOpen: false }));
-      setIsChatOpen(false);
+      if (hash !== "#new-project") setShowAddModal(false);
+      if (!hash.endsWith("/chat") && hash !== "#chat") setIsChatOpen(false);
+      if (!hash.endsWith("/delete")) setProjectToDelete(null);
+      if (!hash.endsWith("/email") && !hash.endsWith("/snaglist") && !hash.endsWith("/report")) {
+        setReportConfig(prev => ({ ...prev, isOpen: false }));
+      }
 
-      if (hash.startsWith("#project-")) {
+      if (hash.startsWith("#project/")) {
+        const id = hash.replace("#project/", "").split("/")[0];
+        setSelectedProjectId(id);
+        setActiveView("detail");
+      } else if (hash.startsWith("#project-") && !hash.includes("/")) {
         const id = hash.replace("#project-", "");
         setSelectedProjectId(id);
         setActiveView("detail");
-      } else {
+      } else if (hash === "" || hash === "#new-project" || hash === "#chat") {
         setActiveView("list");
-        setSelectedProjectId(null);
+        if (hash !== "#chat") setSelectedProjectId(null); 
       }
     };
 
     window.addEventListener("hashchange", handleHashChange);
-    handleHashChange();
+    handleHashChange(); 
 
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
   const handleProjectClick = (id) => {
-    window.location.hash = `project-${id}`;
+    window.location.hash = `project/${id}`;
   };
 
   const handleBackToList = () => {
@@ -325,7 +324,7 @@ function App() {
       window.location.hash = ""; 
     }
   };
-  // -----------------------------------------------------------
+  // --------------------------------------------------------------------
 
   useEffect(() => {
     const initData = async () => {
@@ -384,7 +383,7 @@ function App() {
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      showNotification("Spraakherkenning wordt niet ondersteund door deze browser.", "error");
+      showNotification("Spraakherkenning wordt niet ondersteund.", "error");
       return;
     }
 
@@ -406,28 +405,22 @@ function App() {
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: newNotes } : p);
       await saveToDB(updated);
       setProjects(updated);
-      showNotification("🎙️ Notitie toegevoegd via spraak!", "success");
+      showNotification("🎙️ Notitie toegevoegd!", "success");
     };
     
     recognition.onerror = (e) => {
       setIsListening(false);
-      if(e.error === 'not-allowed') {
-        showNotification("Microfoon toegang geweigerd door browser.", "error");
-      }
+      if(e.error === 'not-allowed') showNotification("Microfoon toegang geweigerd.", "error");
     };
     recognition.onend = () => setIsListening(false);
     
-    try {
-      recognition.start();
-    } catch (err) {
-      setIsListening(false);
-      showNotification("Kon microfoon niet starten.", "error");
-    }
+    try { recognition.start(); } 
+    catch (err) { setIsListening(false); showNotification("Kon microfoon niet starten.", "error"); }
   };
 
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
-    const signature = newStatus !== "Afgewerkt" ? null : activeProject.signature;
+    const signature = (newStatus === "Afgewerkt" || newStatus === "Service nodig") ? activeProject.signature : null;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated);
     setProjects(updated);
@@ -460,7 +453,7 @@ function App() {
         const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         await saveToDB(updated);
         setProjects(updated);
-        showNotification(isOnline ? "Foto direct opgeslagen!" : "Foto lokaal bewaard (geen internet).", isOnline ? "success" : "error");
+        showNotification(isOnline ? "Foto opgeslagen!" : "Lokaal bewaard (offline).", isOnline ? "success" : "error");
       };
       reader.readAsDataURL(file);
     }
@@ -483,11 +476,10 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.location.hash = ""; 
+    window.history.back(); 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
-  // --- KOGELVRIJE PLANNING SCANNER ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -614,7 +606,7 @@ function App() {
     
     setReportStatus("loading"); 
     setReportConfig({ isOpen: true, type, title });
-    window.location.hash = `project-${activeProject.id}-report`; 
+    window.location.hash = `project/${activeProject.id}/${type}`; 
     
     try {
       const text = await executeAI(promptText);
@@ -802,7 +794,7 @@ function App() {
                       <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project-${activeProject.id}-delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project/${activeProject.id}/delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                       <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                     </div>
                   </div>
@@ -874,8 +866,8 @@ function App() {
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                    <button onClick={() => { window.location.hash = `project/${activeProject.id}/email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => { window.location.hash = `project/${activeProject.id}/snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
@@ -949,7 +941,7 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => { window.location.hash = activeProject ? `project-${activeProject.id}-chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => { window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
