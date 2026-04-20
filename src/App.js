@@ -173,11 +173,9 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   let apiKey = "";
   
-  // Veilige check voor moderne systemen (zoals Vite)
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.REACT_APP_GEMINI_API_KEY;
   }
-  // Veilige check voor oudere systemen (Create React App) als fallback
   if (!apiKey && typeof process !== 'undefined' && process.env) {
     apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   }
@@ -412,12 +410,13 @@ function App() {
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
+  // --- VERNIEUWDE PLANNING SCANNER ZONDER STRIKTE 'LEGE LIJST' REGEL ---
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     setIsMagicLoading(true);
     
-    const isPDF = file.type.includes('pdf');
+    const isPDF = file.type.toLowerCase().includes('pdf');
     showNotification(`🕵️‍♂️ Planning (${isPDF ? 'PDF' : 'Foto'}) wordt geanalyseerd...`, "success");
     
     try {
@@ -433,6 +432,7 @@ function App() {
 
       if (isPDF) {
         finalBase64Data = base64Url.split(",")[1];
+        finalMimeType = "application/pdf";
       } else if (finalMimeType.includes('image')) {
         const compressedImage = await compressImage(base64Url, 1600, 0.7);
         finalBase64Data = compressedImage.split(",")[1];
@@ -441,6 +441,7 @@ function App() {
          throw new Error("Ongeldig bestandstype. Upload een foto of PDF.");
       }
       
+      // De prompt is weer ontspannen, we laten de AI zijn best doen.
       const prompt = `Lees deze projectplanning. Extraheer de projecten en groepeer ze per uniek dossiernummer.
       Regels:
       1. "id" (dossiernummer): 4-cijferig getal uit kolom naast 'Plaatsing' of 'Inter'.
@@ -461,12 +462,38 @@ function App() {
       }
       
       if (Array.isArray(extractedData) && extractedData.length > 0) {
-        const newProjects = extractedData.map((proj) => ({ id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), photos: [], notes: "", workHours: "", signature: null }));
+        
+        // ONS EIGEN SLIMME FILTER: Voorkomt dat de AI zijn eigen tekst of ons voorbeeld herhaalt.
+        const isHallucination = extractedData.some(p => 
+            !p.name || 
+            (p.name.includes("Schraeyen") && p.id === "7987" && extractedData.length === 1) || 
+            p.name.includes("Lees deze") || 
+            p.name.length > 30
+        );
+
+        if (isHallucination) {
+            throw new Error("Het document was te onduidelijk voor de AI. Probeer een betere foto of scan.");
+        }
+
+        const newProjects = extractedData.map((proj) => ({ 
+            id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, 
+            name: proj.name || "Onbekende Klant", 
+            date: proj.date || new Date().toISOString().split("T")[0], 
+            duration: proj.duration || "1 dag", 
+            status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), 
+            photos: [], 
+            notes: "", 
+            workHours: "", 
+            signature: null 
+        }));
+        
         const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
         await saveToDB(combined);
         setProjects(combined);
         showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
-      } else { showNotification("Kon geen projecten vinden in dit bestand.", "error"); }
+      } else { 
+        throw new Error("Kon geen leesbare projecten vinden in dit document."); 
+      }
     } catch (error) { 
       showNotification(`AI Fout: ${error.message}`, "error"); 
     } finally { 
