@@ -179,7 +179,8 @@ function App() {
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const activeProject = projects.find((p) => p.id === selectedProjectId);
+  // DE WITTE SCHERM FIX: Vergelijk project IDs altijd expliciet als Strings (tekst)
+  const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
 
   const getDerivedStatus = (currentStatus, projectDate) => {
     if (currentStatus !== "Gepland") return currentStatus;
@@ -187,7 +188,6 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
-  // DE FIX: Terug naar het werkende #-systeem
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -198,16 +198,13 @@ function App() {
       setIsChatOpen(false);
 
       if (hash.startsWith("#project-")) {
-        // Zorg dat we modifiers zoals "-chat" of "-delete" er correct afknippen
         const cleanHash = hash.replace("#project-", "");
         if (cleanHash.endsWith("-chat")) {
             setSelectedProjectId(cleanHash.replace("-chat", ""));
             setIsChatOpen(true);
         } else if (cleanHash.endsWith("-delete")) {
             setSelectedProjectId(cleanHash.replace("-delete", ""));
-            // (projectToDelete wordt getriggerd via de knop, we hoeven hier alleen de view vast te houden)
         } else if (cleanHash.endsWith("-email") || cleanHash.endsWith("-snaglist")) {
-            // Repotrappen worden afgehandeld door reportConfig state, we houden de project view actief
             setSelectedProjectId(cleanHash.replace("-email", "").replace("-snaglist", ""));
         } else {
             setSelectedProjectId(cleanHash);
@@ -268,14 +265,13 @@ function App() {
   const filteredProjects = useMemo(() => {
     if (!searchQuery) return projects;
     const lowerQuery = searchQuery.toLowerCase();
-    return projects.filter((p) => p.name.toLowerCase().includes(lowerQuery) || p.id.toLowerCase().includes(lowerQuery));
+    return projects.filter((p) => p.name.toLowerCase().includes(lowerQuery) || String(p.id).toLowerCase().includes(lowerQuery));
   }, [projects, searchQuery]);
 
   const showNotification = (message, type = "success") => {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- SNELVUUR CAMERA LOGICA ---
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -314,7 +310,7 @@ function App() {
       const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       
       setProjects(prevProjects => {
-        const updated = prevProjects.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
+        const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated);
         return updated;
       });
@@ -339,7 +335,7 @@ function App() {
       newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
     }
 
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [...newPhotos, ...p.photos] } : p);
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [...newPhotos, ...p.photos] } : p);
     await saveToDB(updated); setProjects(updated);
     event.target.value = null;
     showNotification("✅ Upload voltooid!", "success");
@@ -355,7 +351,7 @@ function App() {
     recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
       const currentNotes = activeProject.notes ? activeProject.notes + "\n" : "";
-      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: currentNotes + "- " + transcript } : p);
+      const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: currentNotes + "- " + transcript } : p);
       await saveToDB(updated); setProjects(updated); showNotification("🎙️ Notitie toegevoegd!", "success");
     };
     recognition.onerror = (e) => { setIsListening(false); if(e.error === 'not-allowed') showNotification("Microfoon toegang geweigerd.", "error"); };
@@ -366,25 +362,25 @@ function App() {
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
     const signature = (newStatus === "Afgewerkt" || newStatus === "Service nodig") ? activeProject.signature : null;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated); setProjects(updated); showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
   };
 
   const handleSaveSignature = async (base64Data) => {
     if (!activeProject) return;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, signature: base64Data } : p);
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, signature: base64Data } : p);
     await saveToDB(updated); setProjects(updated); if (base64Data) showNotification("✍️ Handtekening bevestigd!", "success");
   };
 
   const handleUpdateWorkHours = async (hours) => {
     if (!activeProject) return;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, workHours: hours } : p);
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, workHours: hours } : p);
     await saveToDB(updated); setProjects(updated);
   };
 
   const handleDeletePhoto = async (photoId) => {
     if (!window.confirm("Weet je zeker dat je deze foto wilt verwijderen?")) return;
-    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
   };
 
@@ -443,13 +439,13 @@ function App() {
       if (isHallucination) throw new Error("Document was onleesbaar voor de AI. Probeer een betere foto.");
 
       const newProjects = extractedData.map((proj) => ({ 
-          id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", 
+          id: String(proj.id) || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", 
           date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", 
           status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), 
           photos: [], notes: "", workHours: "", signature: null 
       }));
       
-      const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
+      const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => String(np.id) === String(p.id)))].sort((a, b) => new Date(a.date) - new Date(b.date));
       await saveToDB(combined); setProjects(combined);
       showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
 
@@ -480,7 +476,7 @@ function App() {
       const mimeType = "image/jpeg"; const base64Data = base64Url.split(",")[1];
       const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf zichtbare gebreken of gereedschap. In het Nederlands.";
       const text = await executeAI(prompt, mimeType, base64Data);
-      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
+      const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
       await saveToDB(updated); setProjects(updated); showNotification("✨ Foto geanalyseerd door AI.", "success");
     } catch (error) { showNotification(`AI Fout: ${error.message}`, "error"); } 
     finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
@@ -527,7 +523,7 @@ function App() {
     try {
       const prompt = `Analyseer deze ruwe werfnotities: "${activeProject.notes}". Maak een overzicht met: 🛠️ WAT ER NOG MOET GEBEUREN en 📦 WAT ER ONTBREEKT. Bullet points, zakelijk Nederlands.`;
       const text = await executeAI(prompt);
-      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
+      const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: text } : p);
       await saveToDB(updated); setProjects(updated); showNotification("✨ Service punten overzichtelijk gemaakt!", "success");
     } catch (error) { showNotification(`AI Fout: ${error.message}`, "error"); } 
     finally { setIsNoteLoading(false); }
@@ -619,7 +615,6 @@ function App() {
                   </div>
                 </div>
                 
-                {/* AANGEPASTE CAMERA & UPLOAD KNOPPEN */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
                   <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
                   <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
@@ -672,7 +667,7 @@ function App() {
                       </button>
                     </div>
                     
-                    <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => p.id === activeProject.id ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
+                    <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
                     
                     <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
                       {activeProject.notes || "Geen notities of service punten opgegeven."}
