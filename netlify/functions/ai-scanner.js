@@ -13,7 +13,7 @@ exports.handler = async function(event, context) {
   try {
     const { promptText, mimeType, base64Data, forceJson } = JSON.parse(event.body);
     
-    // DE FIX: Terug naar het actuele 2.5 model dat werkt voor jouw account!
+    // DE DEFINITIEVE FIX: Het correcte, actuele 2.5 model op de v1 route
     const model = "gemini-2.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
@@ -39,11 +39,14 @@ exports.handler = async function(event, context) {
     const data = await response.json();
 
     if (!response.ok) {
-      return { statusCode: response.status, body: JSON.stringify({ error: data.error?.message || "Google API Fout." }) };
+      return { statusCode: response.status, body: JSON.stringify({ error: data.error?.message || "Google weigerde." }) };
     }
 
     const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    return { statusCode: 200, body: JSON.stringify({ result: textResult }) };
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ result: textResult })
+    };
 
   } catch (error) {
     return { statusCode: 500, body: JSON.stringify({ error: `Serverfout: ${error.message}` }) };
