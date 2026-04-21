@@ -35,6 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -108,7 +109,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 
   return (
     <div className="space-y-3 print:hidden">
-      {/* UPDATE: Groter handtekening vak (h-[200px] of h-[250px] op grotere schermen) en hogere resolutie (800x400) */}
+      {/* Groter handtekening vak (h-[200px] of h-[250px] op grotere schermen) en hogere resolutie (800x400) */}
       <div className="border-2 border-slate-300 rounded-2xl overflow-hidden bg-white touch-none shadow-inner">
         <canvas ref={canvasRef} width={800} height={400} className="w-full h-[200px] sm:h-[250px] bg-slate-50 cursor-crosshair touch-none" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
       </div>
@@ -120,6 +121,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
+// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -168,6 +170,7 @@ function App() {
   const [isTranslating, setIsTranslating] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
+  // Default staat nu op "1 dag" vanwege het dropdown menu
   const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
@@ -191,6 +194,7 @@ function App() {
     window.print();
   };
 
+  // Navigatie & Fysieke Terug-knop logica
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -222,6 +226,7 @@ function App() {
         setIsChatOpen(true);
         setActiveView("list");
       } else {
+        // Zorg dat we schoon terugkeren naar de lijst, geen gedwongen state-pushes die de app openhouden
         setActiveView("list");
         setSelectedProjectId(null);
       }
@@ -233,9 +238,14 @@ function App() {
   }, []);
 
   const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
+  
   const handleBackToList = () => {
-    if (window.history.length > 1 && window.location.hash !== "") { window.history.back(); } 
-    else { window.location.hash = ""; }
+    // Navigeer terug, maar als er geen geschiedenis is, laat het leeg zodat de browser kan afsluiten
+    if (window.history.length > 1) {
+        window.history.back();
+    } else {
+        window.location.hash = "";
+    }
   };
 
   useEffect(() => {
@@ -279,6 +289,7 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
+  // --- CAMERA MODULE ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -340,7 +351,7 @@ function App() {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen!", "success");
+      showNotification("📸 Foto opgeslagen in hoge kwaliteit!", "success");
     });
   };
 
@@ -389,7 +400,7 @@ function App() {
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated); setProjects(updated); 
     
-    // UPDATE: Als status "Service nodig" is, geef een rode 'error' waarschuwingsbalkje in plaats van groen
+    // Rode melding als service nodig is
     showNotification(`Status gewijzigd naar: ${newStatus}`, newStatus === "Service nodig" ? "error" : "success");
   };
 
@@ -423,9 +434,12 @@ function App() {
 
   const handleAddProject = async (e) => {
     e.preventDefault();
-    if (!newProjectData.name || !newProjectData.date) return showNotification("Vul naam en datum in.", "error");
+    // Controleer nu ook of het dossiernummer is ingevuld
+    if (!newProjectData.name || !newProjectData.date || !newProjectData.id) {
+        return showNotification("Vul alle verplichte velden in.", "error");
+    }
     const newProject = { 
-        id: newProjectData.id || `PRJ-MAN-${Date.now().toString().slice(-4)}`, 
+        id: newProjectData.id, 
         name: newProjectData.name, 
         date: newProjectData.date, 
         duration: newProjectData.duration, 
@@ -587,7 +601,6 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
-
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -670,6 +683,7 @@ function App() {
                   <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                 </div>
 
+                {/* Rode melding als er service nodig is */}
                 {activeProject.status === "Service nodig" && (
                   <div className="mb-6 p-5 bg-red-100 rounded-2xl border-2 border-red-500 shadow-md animate-in fade-in print:bg-transparent print:border-none print:p-0">
                     <label className="block text-sm font-bold text-red-900 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
@@ -775,8 +789,8 @@ function App() {
                 <input type="text" required placeholder="Bijv. Peeters" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer</label>
-                <input type="text" placeholder="Bijv. 1234" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer *</label>
+                <input type="text" required placeholder="Bijv. 1234" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Startdatum *</label>
@@ -784,7 +798,7 @@ function App() {
                 <input type="date" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur *</label>
                 <div className="relative">
                   <select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
                     <option value="1 dag">1 dag</option>
