@@ -3,7 +3,6 @@ exports.handler = async function(event, context) {
     return { statusCode: 405, body: "Alleen POST toegestaan" };
   }
 
-  // Hier leest de server je wachtwoord straks uit het Netlify Dashboard
   const rawKey = process.env.GEMINI_API_KEY || "";
   const apiKey = rawKey.replace(/['"\s\r\n]/g, ""); 
 
@@ -14,9 +13,11 @@ exports.handler = async function(event, context) {
   try {
     const { promptText, mimeType, base64Data, forceJson } = JSON.parse(event.body);
     
-    // We gebruiken de superstabiele 1.5-flash motor
+    // Exacte naam, zonder spaties.
     const model = "gemini-1.5-flash"; 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    // DE FIX: We gebruiken de stabiele 'v1' API route voor jouw Tier 1 account
+    const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
     const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
 
