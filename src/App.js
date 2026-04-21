@@ -172,7 +172,6 @@ function App() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
-  // --- SNELVUUR CAMERA STATE ---
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -188,23 +187,39 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
+  // DE FIX: Terug naar het werkende #-systeem
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      if (hash !== "#new-project") setShowAddModal(false);
-      if (!hash.endsWith("/chat") && hash !== "#chat") setIsChatOpen(false);
-      if (!hash.endsWith("/delete")) setProjectToDelete(null);
-      if (!hash.endsWith("/email") && !hash.endsWith("/snaglist") && !hash.endsWith("/report")) {
-        setReportConfig(prev => ({ ...prev, isOpen: false }));
-      }
-      if (hash.startsWith("#project/")) {
-        const id = hash.replace("#project/", "").split("/")[0];
-        setSelectedProjectId(id); setActiveView("detail");
-      } else if (hash.startsWith("#project-") && !hash.includes("/")) {
-        const id = hash.replace("#project-", "");
-        setSelectedProjectId(id); setActiveView("detail");
-      } else if (hash === "" || hash === "#new-project" || hash === "#chat") {
-        setActiveView("list"); if (hash !== "#chat") setSelectedProjectId(null); 
+      
+      setShowAddModal(false);
+      setProjectToDelete(null);
+      setReportConfig(prev => ({ ...prev, isOpen: false }));
+      setIsChatOpen(false);
+
+      if (hash.startsWith("#project-")) {
+        // Zorg dat we modifiers zoals "-chat" of "-delete" er correct afknippen
+        const cleanHash = hash.replace("#project-", "");
+        if (cleanHash.endsWith("-chat")) {
+            setSelectedProjectId(cleanHash.replace("-chat", ""));
+            setIsChatOpen(true);
+        } else if (cleanHash.endsWith("-delete")) {
+            setSelectedProjectId(cleanHash.replace("-delete", ""));
+            // (projectToDelete wordt getriggerd via de knop, we hoeven hier alleen de view vast te houden)
+        } else if (cleanHash.endsWith("-email") || cleanHash.endsWith("-snaglist")) {
+            // Repotrappen worden afgehandeld door reportConfig state, we houden de project view actief
+            setSelectedProjectId(cleanHash.replace("-email", "").replace("-snaglist", ""));
+        } else {
+            setSelectedProjectId(cleanHash);
+        }
+        setActiveView("detail");
+      } else if (hash === "#new-project") {
+        setShowAddModal(true);
+      } else if (hash === "#chat") {
+        setIsChatOpen(true);
+      } else {
+        setActiveView("list");
+        setSelectedProjectId(null);
       }
     };
 
@@ -213,7 +228,7 @@ function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
+  const handleProjectClick = (id) => { window.location.hash = `project-${id}`; };
   const handleBackToList = () => {
     if (window.history.length > 1 && window.location.hash !== "") { window.history.back(); } 
     else { window.location.hash = ""; }
@@ -257,7 +272,7 @@ function App() {
   }, [projects, searchQuery]);
 
   const showNotification = (message, type = "success") => {
-    setNotification({ message, type }); setTimeout(() => setNotification(null), 3000);
+    setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
   // --- SNELVUUR CAMERA LOGICA ---
@@ -277,7 +292,6 @@ function App() {
     setIsCameraOpen(false);
   };
 
-  // Zorgt dat de camera sluit als je de app plots verlaat
   useEffect(() => {
     return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
   }, []);
@@ -285,7 +299,6 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
 
-    // Speel een visueel effect (flits) af voor de gebruiker
     videoRef.current.style.opacity = 0;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -300,7 +313,6 @@ function App() {
     compressImage(base64Url, 1200, 0.7).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       
-      // Gebruik een callback om te zorgen dat snelle kliks elkaar niet overschrijven
       setProjects(prevProjects => {
         const updated = prevProjects.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated);
@@ -452,7 +464,7 @@ function App() {
       : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
-    window.location.hash = `project/${activeProject.id}/${type}`; 
+    window.location.hash = `project-${activeProject.id}-${type}`; 
     
     try {
       const text = await executeAI(promptText);
@@ -540,12 +552,6 @@ function App() {
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
       </header>
 
-      {/* PRINT HEADER */}
-      <div className="hidden print:block mb-8 border-b-2 border-slate-200 pb-4">
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Goossens<span className="text-blue-600">Docs</span> Servicerapport</h1>
-        <p className="text-slate-500 text-sm mt-1">Gegenereerd op {new Date().toLocaleDateString('nl-BE')}</p>
-      </div>
-
       <main className="max-w-6xl mx-auto p-4 sm:p-6 print:p-0">
         {activeView === "list" ? (
           <div className="w-full animate-in fade-in duration-300 print:hidden">
@@ -607,7 +613,7 @@ function App() {
                       <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project/${activeProject.id}/delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project-${activeProject.id}-delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                       <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                     </div>
                   </div>
@@ -680,8 +686,8 @@ function App() {
                 <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                   <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => { window.location.hash = `project/${activeProject.id}/email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => { window.location.hash = `project/${activeProject.id}/snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                   </div>
                 </div>
 
@@ -773,38 +779,11 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => { window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => { window.location.hash = activeProject ? `project-${activeProject.id}-chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
 
-      {/* MODAL VOOR NIEUW PROJECT */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
-          <form onSubmit={handleAddProject} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center"><h3 className="font-black uppercase tracking-widest text-[10px]">Nieuw Project</h3><button type="button" onClick={() => window.history.back()}><X size={20} /></button></div>
-            <div className="p-6 space-y-4">
-              <input type="text" placeholder="Naam Klant" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({ ...newProjectData, name: e.target.value })} />
-              <input type="text" placeholder="Dossiernummer" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({ ...newProjectData, id: e.target.value })} />
-              <div className="grid grid-cols-2 gap-3"><input type="date" required className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({ ...newProjectData, date: e.target.value })} /><select className="p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({ ...newProjectData, duration: e.target.value })}><option>1 dag</option><option>2 dagen</option><option>3 dagen</option></select></div>
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3"><button type="button" onClick={() => window.history.back()} className="flex-1 py-3 font-bold text-slate-500 text-xs">Stop</button><button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Opslaan</button></div>
-          </form>
-        </div>
-      )}
-
-      {/* DELETE MODAL */}
-      {projectToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden">
-          <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in-95 duration-200">
-            <div className="bg-rose-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
-            <h3 className="text-xl font-black mb-2">Verwijderen?</h3>
-            <p className="text-slate-500 text-sm mb-8">Weet je zeker dat je <strong>{projectToDelete.name}</strong> wilt wissen?</p>
-            <div className="flex gap-3"><button onClick={() => window.history.back()} className="flex-1 py-3 font-bold text-xs text-slate-400">Nee</button><button onClick={() => { const updated = projectsRef.current.filter((p) => p.id !== projectToDelete.id); setProjects(updated); saveToDB(updated); window.history.back(); setActiveView("list"); showNotification("Project verwijderd.", "success"); }} className="flex-1 py-3 bg-rose-600 text-white rounded-xl font-bold text-xs shadow-lg">Ja, Wis</button></div>
-          </div>
-        </div>
-      )}
-      
       {/* Upload knop voor meerdere foto's tegelijk */}
       <input type="file" accept="image/*" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={handleMultipleUpload} />
       
