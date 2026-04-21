@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Lock } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
+
+// --- JOUW GEHEIME PINCODE VOOR HET TANDWIEL ---
+const ADMIN_PIN = "9999"; 
 
 const openDB = () => new Promise((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, 1);
@@ -120,20 +123,54 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 };
 
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  const url = "/.netlify/functions/ai-scanner";
+  const rawKey = localStorage.getItem("gemini_api_key") || "";
+  const apiKey = rawKey.replace(/['"\s\r\n]/g, "");
+
+  if (!apiKey) {
+    throw new Error("Geen AI Sleutel gevonden! Klik rechtsboven op het Tandwiel ⚙️ en vul je Google API Key in.");
+  }
+
+  const hasAttachment = !!base64Data;
+  const model = "gemini-1.5-flash"; 
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+  const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
+
+  let apiBody;
+  if (hasAttachment) {
+    apiBody = {
+      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
+      generationConfig
+    };
+  } else {
+    apiBody = {
+      contents: [{ role: "user", parts: [{ text: promptText }] }],
+      generationConfig
+    };
+  }
 
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ promptText, mimeType, base64Data, forceJson })
+      body: JSON.stringify(apiBody)
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Fout bij de server.");
-    return data.result;
+    
+    if (!response.ok) {
+      if (data.error?.message?.toLowerCase().includes("api key not valid")) {
+        throw new Error("Google herkent je sleutel niet. Heb je hem correct gekopieerd in het menu?");
+      }
+      throw new Error(`Google Error: ${data.error?.message || "Onbekende Fout"}`);
+    }
+
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
-    throw new Error(`Connectiefout: ${error.message}`);
+    if (error.message.includes("Failed to fetch")) {
+      throw new Error("Netwerkfout: Google blokkeert. Zet adblockers of VPN uit.");
+    }
+    throw error;
   }
 };
 
@@ -171,6 +208,13 @@ function App() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
+  // Beveiligd Instellingen Menu
+  const [showSettings, setShowSettings] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [localApiKey, setLocalApiKey] = useState("");
+  const [hasSavedKey, setHasSavedKey] = useState(false);
+
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -178,7 +222,6 @@ function App() {
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Zorg dat we veilig vergelijken en dat activeProject altijd klopt
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
 
   const getDerivedStatus = (currentStatus, projectDate) => {
@@ -187,27 +230,62 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
-  // DE FIX: Terug naar robuuste / routing. Slashes knippen perfect op en crashen niet door streepjes in namen.
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
+  useEffect(() => {
+    const existingKey = localStorage.getItem("gemini_api_key");
+    if (existingKey) setHasSavedKey(true);
+  }, []);
+
+  const handlePinSubmit = (e) => {
+    e.preventDefault();
+    if (pinInput === ADMIN_PIN) {
+      setShowPinModal(false);
+      setShowSettings(true);
+      setPinInput("");
+    } else {
+      showNotification("Onjuiste PIN code.", "error");
+      setPinInput("");
+    }
+  };
+
+  const handleSaveSettings = (e) => {
+    e.preventDefault();
+    if (localApiKey.trim() !== "") {
+      localStorage.setItem("gemini_api_key", localApiKey.trim());
+      setHasSavedKey(true);
+    }
+    setLocalApiKey(""); // Maak input veld direct weer leeg na opslaan
+    window.location.hash = ""; 
+    showNotification("API Sleutel veilig opgeslagen!", "success");
+  };
+
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      
+
       setShowAddModal(false);
+      setShowSettings(false);
+      setShowPinModal(false);
+      setIsChatOpen(false);
       setProjectToDelete(null);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
-      setIsChatOpen(false);
 
       if (hash.startsWith("#project/")) {
         const parts = hash.split("/");
         const id = parts[1];
-        const subAction = parts[2];
-
+        const action = parts[2];
         setSelectedProjectId(id);
         setActiveView("detail");
-
-        if (subAction === "chat") setIsChatOpen(true);
+        if (action === "chat") setIsChatOpen(true);
       } else if (hash === "#new-project") {
         setShowAddModal(true);
+        setActiveView("list");
+      } else if (hash === "#settings") {
+        // Vraag eerst om PIN in plaats van direct instellingen te openen
+        setShowPinModal(true);
         setActiveView("list");
       } else if (hash === "#chat") {
         setIsChatOpen(true);
@@ -277,7 +355,7 @@ function App() {
       setIsCameraOpen(true);
       setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
     } catch (err) {
-      showNotification("Geen toegang tot camera. Check permissies.", "error");
+      showNotification("Geen toegang tot camera.", "error");
     }
   };
 
@@ -292,7 +370,6 @@ function App() {
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
-
     videoRef.current.style.opacity = 0;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -305,12 +382,10 @@ function App() {
     const base64Url = canvas.toDataURL("image/jpeg", 0.8);
 
     compressImage(base64Url, 1200, 0.7).then(async (compressedBase64) => {
-      const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
-      
+      const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       setProjects(prevProjects => {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
-        saveToDB(updated);
-        return updated;
+        saveToDB(updated); return updated;
       });
       showNotification("📸 Foto opgeslagen!", "success");
     });
@@ -321,7 +396,6 @@ function App() {
     if (!files.length || !activeProject) return;
 
     showNotification(`Bezig met verwerken van ${files.length} foto('s)...`, "success");
-
     let newPhotos = [];
     for (let file of files) {
       const reader = new FileReader();
@@ -335,8 +409,7 @@ function App() {
 
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [...newPhotos, ...p.photos] } : p);
     await saveToDB(updated); setProjects(updated);
-    event.target.value = null;
-    showNotification("✅ Upload voltooid!", "success");
+    event.target.value = null; showNotification("✅ Upload voltooid!", "success");
   };
 
   const toggleListening = () => {
@@ -407,14 +480,13 @@ function App() {
       });
 
       if (!base64Url || !base64Url.includes(",")) throw new Error("Bestand is onleesbaar.");
-
       let finalBase64Data = ""; let finalMimeType = file.type || "application/pdf"; 
 
       if (finalMimeType.includes('pdf')) { finalBase64Data = base64Url.split(",")[1]; } 
       else if (finalMimeType.includes('image')) { const compressedImage = await compressImage(base64Url, 1600, 0.7); finalBase64Data = compressedImage.split(",")[1]; } 
       else { throw new Error("Ongeldig bestandstype. Upload een foto of PDF."); }
       
-      const prompt = `Lees deze projectplanning heel goed af. Extraheer alle projecten. 1. "id": Dossiernummer (vaak 4-cijferig getal). 2. "name": Klantnaam (alleen de achternaam). 3. "date": Startdatum in formaat "YYYY-MM-DD". 4. "duration": Duur (bijv. "1 dag" of "2 dagen"). Geef UITSLUITEND een valide JSON array terug. Voorbeeld: [{"id": "1234", "name": "Voorbeeld", "date": "2026-01-01", "duration": "1 dag"}]`;
+      const prompt = `Lees deze projectplanning heel goed af. Extraheer alle projecten. 1. "id": Dossiernummer (vaak 4-cijferig getal of tekst). 2. "name": Klantnaam (alleen de achternaam). 3. "date": Startdatum in formaat "YYYY-MM-DD". 4. "duration": Duur (bijv. "1 dag" of "2 dagen"). Geef UITSLUITEND een valide JSON array terug. Voorbeeld: [{"id": "1234", "name": "Voorbeeld", "date": "2026-01-01", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
       let extractedData = []; let parsedRaw = null;
@@ -423,7 +495,7 @@ function App() {
         let cleanText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
         const jsonMatch = cleanText.match(/\[[\s\S]*\]/);
         if (jsonMatch) parsedRaw = JSON.parse(jsonMatch[0]); else parsedRaw = JSON.parse(cleanText);
-      } catch (err) { throw new Error("AI kon de gegevens niet formatteren. Probeer een duidelijkere scan."); }
+      } catch (err) { throw new Error("AI kon de gegevens niet formatteren. Zorg voor een scherpe scan."); }
       
       if (Array.isArray(parsedRaw)) { extractedData = parsedRaw; } 
       else if (parsedRaw && typeof parsedRaw === 'object') {
@@ -432,7 +504,6 @@ function App() {
       }
 
       if (!Array.isArray(extractedData) || extractedData.length === 0) throw new Error("Geen projecten gevonden in dit document.");
-
       const isHallucination = extractedData.some(p => !p.name || p.name.includes("Je bent") || p.name.includes("Voorbeeld") || p.name.length > 40);
       if (isHallucination) throw new Error("Document was onleesbaar voor de AI. Probeer een betere foto.");
 
@@ -541,6 +612,12 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
+          
+          {/* TANDWIEL INSTELLINGEN MENU */}
+          <button onClick={() => { window.location.hash = "settings"; }} className="p-2 text-slate-400 hover:text-white transition-colors" title="Systeem Instellingen">
+            <Settings size={20} />
+          </button>
+
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -706,8 +783,8 @@ function App() {
           </div>
         ) : (
           <div className="py-32 text-center space-y-4 animate-in fade-in print:hidden">
-             <Loader2 className="animate-spin mx-auto text-blue-500" size={40} />
-             <p className="text-slate-500 font-medium">Dossier laden...</p>
+             <Loader2 className="animate-spin mx-auto text-slate-400" size={40} />
+             <p className="text-slate-500 font-medium">Map laden...</p>
              <button onClick={() => window.location.hash = ""} className="mt-4 px-6 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-300 transition-colors shadow-sm">Terug naar overzicht</button>
           </div>
         )}
@@ -731,17 +808,68 @@ function App() {
         </div>
       )}
 
+      {/* PIN BEVEILIGING MODAL */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
+          <form onSubmit={handlePinSubmit} className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><Lock size={14}/> Beveiligde Zone</h3>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
+            </div>
+            <div className="p-8 space-y-6 text-center">
+              <Lock size={40} className="mx-auto text-slate-300" />
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Voer Beheerder PIN in</label>
+                <input type="password" autoFocus placeholder="••••" maxLength={4} className="w-32 mx-auto text-center p-4 bg-slate-100 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 text-2xl font-black tracking-[0.5em]" value={pinInput} onChange={(e) => setPinInput(e.target.value)} />
+              </div>
+            </div>
+            <div className="p-6 bg-slate-50 flex gap-3">
+              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs">Annuleren</button>
+              <button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Ontgrendel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* INSTELLINGEN MODAL (ALLEEN NA PIN) */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in zoom-in-95 duration-200">
+          <form onSubmit={handleSaveSettings} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col border-t-8 border-blue-600">
+            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2"><Settings size={14}/> Systeem Instellingen</h3>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-500 font-medium">Beheer hier de Google AI verbinding voor deze iPad/GSM. De sleutel wordt lokaal versleuteld bewaard.</p>
+              
+              {hasSavedKey && (
+                <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-sm font-bold flex items-center gap-2 border border-emerald-200">
+                  <CheckCircle size={18} /> Er is een actieve AI sleutel beveiligd opgeslagen.
+                </div>
+              )}
+
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mt-4">Nieuwe Sleutel Invoeren (Optioneel)</label>
+              <input type="password" placeholder={hasSavedKey ? "••••••••••••••••••••••••" : "Plak hier je AIzaSy... sleutel"} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono placeholder:tracking-widest" value={localApiKey} onChange={(e) => setLocalApiKey(e.target.value)} />
+            </div>
+            <div className="p-6 bg-slate-50 flex gap-3">
+              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs hover:bg-slate-200 rounded-xl transition-colors">Sluiten</button>
+              <button type="submit" disabled={!localApiKey} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg disabled:opacity-50 transition-all hover:bg-blue-700">Sleutel Opslaan</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => window.history.back()} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
             <div className="p-6 overflow-y-auto flex-1 bg-white">
               {reportStatus === "loading" ? <div className="py-20 text-center space-y-4"><Loader2 className="animate-spin mx-auto text-blue-600" size={40} /><p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">AI stelt document op...</p></div> : (
                 <div className="space-y-4">
                   <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
                   <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => window.history.back()} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
+                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => window.location.hash = ""} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
                 </div>
               )}
             </div>
@@ -755,7 +883,7 @@ function App() {
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => window.history.back()} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
@@ -780,10 +908,8 @@ function App() {
         </button>
       </div>
 
-      {/* Upload knop voor meerdere foto's tegelijk */}
       <input type="file" accept="image/*" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={handleMultipleUpload} />
       
-      {/* NOTIFICATIE POPUP */}
       {notification && (
         <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 z-[100] animate-in fade-in slide-in-from-bottom-4 w-[90%] sm:w-auto text-white font-bold text-sm text-center print:hidden ${notification.type === "error" ? "bg-rose-600" : "bg-emerald-600"}`}>
           {notification.type === "error" ? <AlertTriangle size={20} className="shrink-0" /> : <CheckCircle size={20} className="shrink-0" />}
