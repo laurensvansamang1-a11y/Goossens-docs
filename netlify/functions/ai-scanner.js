@@ -13,10 +13,8 @@ exports.handler = async function(event, context) {
   try {
     const { promptText, mimeType, base64Data, forceJson } = JSON.parse(event.body);
     
-    // Exacte naam, zonder spaties.
-    const model = "gemini-1.5-flash"; 
-    
-    // DE FIX: We gebruiken de stabiele 'v1' API route voor jouw Tier 1 account
+    // DE FIX: Terug naar het actuele 2.5 model dat werkt voor jouw account!
+    const model = "gemini-2.5-flash"; 
     const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
 
     const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
@@ -41,14 +39,11 @@ exports.handler = async function(event, context) {
     const data = await response.json();
 
     if (!response.ok) {
-      return { statusCode: response.status, body: JSON.stringify({ error: data.error?.message || "Google weigerde." }) };
+      return { statusCode: response.status, body: JSON.stringify({ error: data.error?.message || "Google API Fout." }) };
     }
 
     const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ result: textResult })
-    };
+    return { statusCode: 200, body: JSON.stringify({ result: textResult }) };
 
   } catch (error) {
     return { statusCode: 500, body: JSON.stringify({ error: `Serverfout: ${error.message}` }) };
