@@ -119,7 +119,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- VEILIGE CONNECTIE NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -179,7 +178,7 @@ function App() {
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // DE WITTE SCHERM FIX: Vergelijk project IDs altijd expliciet als Strings (tekst)
+  // Zorg dat we veilig vergelijken en dat activeProject altijd klopt
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
 
   const getDerivedStatus = (currentStatus, projectDate) => {
@@ -188,6 +187,7 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
+  // DE FIX: Terug naar robuuste / routing. Slashes knippen perfect op en crashen niet door streepjes in namen.
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -197,23 +197,21 @@ function App() {
       setReportConfig(prev => ({ ...prev, isOpen: false }));
       setIsChatOpen(false);
 
-      if (hash.startsWith("#project-")) {
-        const cleanHash = hash.replace("#project-", "");
-        if (cleanHash.endsWith("-chat")) {
-            setSelectedProjectId(cleanHash.replace("-chat", ""));
-            setIsChatOpen(true);
-        } else if (cleanHash.endsWith("-delete")) {
-            setSelectedProjectId(cleanHash.replace("-delete", ""));
-        } else if (cleanHash.endsWith("-email") || cleanHash.endsWith("-snaglist")) {
-            setSelectedProjectId(cleanHash.replace("-email", "").replace("-snaglist", ""));
-        } else {
-            setSelectedProjectId(cleanHash);
-        }
+      if (hash.startsWith("#project/")) {
+        const parts = hash.split("/");
+        const id = parts[1];
+        const subAction = parts[2];
+
+        setSelectedProjectId(id);
         setActiveView("detail");
+
+        if (subAction === "chat") setIsChatOpen(true);
       } else if (hash === "#new-project") {
         setShowAddModal(true);
+        setActiveView("list");
       } else if (hash === "#chat") {
         setIsChatOpen(true);
+        setActiveView("list");
       } else {
         setActiveView("list");
         setSelectedProjectId(null);
@@ -225,7 +223,7 @@ function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const handleProjectClick = (id) => { window.location.hash = `project-${id}`; };
+  const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
   const handleBackToList = () => {
     if (window.history.length > 1 && window.location.hash !== "") { window.history.back(); } 
     else { window.location.hash = ""; }
@@ -460,7 +458,7 @@ function App() {
       : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
-    window.location.hash = `project-${activeProject.id}-${type}`; 
+    window.location.hash = `project/${activeProject.id}/${type}`; 
     
     try {
       const text = await executeAI(promptText);
@@ -588,127 +586,130 @@ function App() {
               )}
             </div>
           </div>
-        ) : (
-          activeProject && (
-            <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
-              
-              <div className="flex justify-between items-center print:hidden">
-                <button onClick={handleBackToList} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
-                  <ChevronLeft size={24} /> Terug
-                </button>
-                <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
-                  <Printer size={18} /> Opslaan als PDF
-                </button>
+        ) : activeProject ? (
+          <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+            <div className="flex justify-between items-center print:hidden">
+              <button onClick={handleBackToList} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
+                <ChevronLeft size={24} /> Terug
+              </button>
+              <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
+                <Printer size={18} /> Opslaan als PDF
+              </button>
+            </div>
+            
+            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                <div className="flex flex-col gap-1 w-full">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-3xl font-black text-slate-800">{activeProject.name}</h2>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project/${activeProject.id}/delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                    <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
+                  </div>
+                </div>
               </div>
               
-              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6 print:border-none print:shadow-none print:p-0">
-                <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                  <div className="flex flex-col gap-1 w-full">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-3xl font-black text-slate-800">{activeProject.name}</h2>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                      <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project-${activeProject.id}-delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
-                      <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                  <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
-                  <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
+                <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
+                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
+              </div>
+
+              <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
+                <h3 className="text-lg sm:text-xl font-black text-slate-800 mb-2 flex items-center gap-2 print:hidden"><CheckCircle size={22} className="text-slate-400 shrink-0" /> Status Oplevering</h3>
+                <div className="flex flex-col sm:flex-row gap-3 mb-6 print:hidden">
+                  <button onClick={() => handleUpdateStatus("Afgewerkt")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Afgewerkt" ? "bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"}`}><CheckCircle size={20} className="shrink-0" /><span>Afgewerkt <span className="hidden sm:inline">(Geen Service)</span></span></button>
+                  <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                 </div>
 
-                <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
-                  <h3 className="text-lg sm:text-xl font-black text-slate-800 mb-2 flex items-center gap-2 print:hidden"><CheckCircle size={22} className="text-slate-400 shrink-0" /> Status Oplevering</h3>
-                  <div className="flex flex-col sm:flex-row gap-3 mb-6 print:hidden">
-                    <button onClick={() => handleUpdateStatus("Afgewerkt")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Afgewerkt" ? "bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"}`}><CheckCircle size={20} className="shrink-0" /><span>Afgewerkt <span className="hidden sm:inline">(Geen Service)</span></span></button>
-                    <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
-                  </div>
-
-                  {activeProject.status === "Service nodig" && (
-                    <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
-                      <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
-                      <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium print:hidden" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
-                        <option value="" disabled>Selecteer aantal uren...</option>
-                        {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
-                          <option key={h} value={`${h} uur`}>{h} uur</option>
-                        ))}
-                      </select>
-                      <p className="hidden print:block text-lg font-medium text-slate-700">{activeProject.workHours || "Geen uren opgegeven"}</p>
-                    </div>
-                  )}
-
-                  {/* HANDTEKENING */}
-                  {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
-                    <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
-                      <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
-                      
-                      {!activeProject.signature ? (
-                        <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} initialSignature={activeProject.signature} />
-                      ) : (
-                        <div className="space-y-3">
-                          <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b-2 border-slate-800 print:border-black" />
-                          <p className="text-xs text-emerald-600 font-bold flex items-center gap-1 print:hidden"><CheckCircle size={14} /> Digitaal getekend</p>
-                          <button onClick={() => handleSaveSignature(null)} className="text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors print:hidden flex items-center gap-1">
-                            <Eraser size={12} /> Handtekening wissen en opnieuw tekenen
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="pt-6 border-t border-slate-100 space-y-3 print:pt-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <p className="text-sm font-black text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400" /> Project Logboek en Service Punten</p>
-                      <button onClick={toggleListening} className={`print:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isListening ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                        <Mic size={14} /> {isListening ? "Aan het luisteren..." : "Dicteren"}
-                      </button>
-                    </div>
-                    
-                    <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
-                    
-                    <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
-                      {activeProject.notes || "Geen notities of service punten opgegeven."}
-                    </div>
-
-                    <button onClick={handleStructureNote} disabled={isNoteLoading} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50 print:hidden">{isNoteLoading ? <Loader2 className="animate-spin" size={16} /> : <ListChecks size={16} />} Automatisch Punten Maken (AI)</button>
-                  </div>
-                </div>
-
-                {/* AI ACTIES */}
-                <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
-                  <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                    <button onClick={() => { window.location.hash = `project-${activeProject.id}-snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
-                  </div>
-                </div>
-
-                <div className="space-y-4 print:hidden">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
-                  {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {activeProject.photos.map((ph) => (
-                        <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
-                          <div className="relative aspect-video">
-                            <img src={ph.url} className="w-full h-full object-cover" alt="Werffoto" />
-                            <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm" title="Verwijder foto"><Trash2 size={16} /></button>
-                          </div>
-                          <div className="p-4 space-y-3">
-                            {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
-                              <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
-                            )}
-                          </div>
-                        </div>
+                {activeProject.status === "Service nodig" && (
+                  <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
+                    <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
+                    <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium print:hidden" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
+                      <option value="" disabled>Selecteer aantal uren...</option>
+                      {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
+                        <option key={h} value={`${h} uur`}>{h} uur</option>
                       ))}
-                    </div>
-                  )}
+                    </select>
+                    <p className="hidden print:block text-lg font-medium text-slate-700">{activeProject.workHours || "Geen uren opgegeven"}</p>
+                  </div>
+                )}
+
+                {/* HANDTEKENING */}
+                {(activeProject.status === "Afgewerkt" || activeProject.status === "Service nodig") && (
+                  <div className="mb-6 p-5 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in print:bg-transparent print:border-none print:p-0">
+                    <label className="block text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><PenTool size={16} className="text-slate-500" /> Handtekening Klant voor Akkoord</label>
+                    
+                    {!activeProject.signature ? (
+                      <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} initialSignature={activeProject.signature} />
+                    ) : (
+                      <div className="space-y-3">
+                        <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b-2 border-slate-800 print:border-black" />
+                        <p className="text-xs text-emerald-600 font-bold flex items-center gap-1 print:hidden"><CheckCircle size={14} /> Digitaal getekend</p>
+                        <button onClick={() => handleSaveSignature(null)} className="text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors print:hidden flex items-center gap-1">
+                          <Eraser size={12} /> Handtekening wissen en opnieuw tekenen
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-6 border-t border-slate-100 space-y-3 print:pt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-sm font-black text-slate-800 flex items-center gap-2"><FileText size={18} className="text-slate-400" /> Project Logboek en Service Punten</p>
+                    <button onClick={toggleListening} className={`print:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isListening ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                      <Mic size={14} /> {isListening ? "Aan het luisteren..." : "Dicteren"}
+                    </button>
+                  </div>
+                  
+                  <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
+                  
+                  <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
+                    {activeProject.notes || "Geen notities of service punten opgegeven."}
+                  </div>
+
+                  <button onClick={handleStructureNote} disabled={isNoteLoading} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-5 py-3 rounded-xl font-bold text-sm shadow-sm hover:bg-indigo-100 disabled:opacity-50 print:hidden">{isNoteLoading ? <Loader2 className="animate-spin" size={16} /> : <ListChecks size={16} />} Automatisch Punten Maken (AI)</button>
                 </div>
+              </div>
+
+              {/* AI ACTIES */}
+              <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
+                <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button onClick={() => { window.location.hash = `project/${activeProject.id}/email`; handleGenerateReport("email"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                  <button onClick={() => { window.location.hash = `project/${activeProject.id}/snaglist`; handleGenerateReport("snaglist"); }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                </div>
+              </div>
+
+              <div className="space-y-4 print:hidden">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
+                {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {activeProject.photos.map((ph) => (
+                      <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
+                        <div className="relative aspect-video">
+                          <img src={ph.url} className="w-full h-full object-cover" alt="Werffoto" />
+                          <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm" title="Verwijder foto"><Trash2 size={16} /></button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                          {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
+                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          )
+          </div>
+        ) : (
+          <div className="py-32 text-center space-y-4 animate-in fade-in print:hidden">
+             <Loader2 className="animate-spin mx-auto text-blue-500" size={40} />
+             <p className="text-slate-500 font-medium">Dossier laden...</p>
+             <button onClick={() => window.location.hash = ""} className="mt-4 px-6 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-300 transition-colors shadow-sm">Terug naar overzicht</button>
+          </div>
         )}
       </main>
 
@@ -774,7 +775,7 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => { window.location.hash = activeProject ? `project-${activeProject.id}-chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => { window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
