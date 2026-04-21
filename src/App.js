@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -120,55 +120,22 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
+// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  const rawKey = localStorage.getItem("gemini_api_key") || "";
-  const apiKey = rawKey.replace(/['"\s\r\n]/g, "");
-
-  if (!apiKey) {
-    throw new Error("Geen AI Sleutel gevonden! Klik rechtsboven op het Tandwiel ⚙️ en vul je Google API Key in.");
-  }
-
-  const hasAttachment = !!base64Data;
-  const model = "gemini-1.5-flash"; 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
-
-  let apiBody;
-  if (hasAttachment) {
-    apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
-      generationConfig
-    };
-  } else {
-    apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }] }],
-      generationConfig
-    };
-  }
+  const url = "/.netlify/functions/ai-scanner";
 
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(apiBody)
+      body: JSON.stringify({ promptText, mimeType, base64Data, forceJson })
     });
 
     const data = await response.json();
-    
-    if (!response.ok) {
-      if (data.error?.message?.toLowerCase().includes("api key not valid")) {
-        throw new Error("Google herkent je sleutel niet. Controleer de instellingen in het Tandwiel menu.");
-      }
-      throw new Error(`Google Error: ${data.error?.message || "Onbekende Fout"}`);
-    }
-
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (!response.ok) throw new Error(data.error || "Fout bij de server.");
+    return data.result;
   } catch (error) {
-    if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout: Google blokkeert de verbinding. Controleer je internet.");
-    }
-    throw error;
+    throw new Error(`Connectiefout: ${error.message}`);
   }
 };
 
@@ -186,17 +153,6 @@ function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Status voor de Modals/Vensters
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [projectToDelete, setProjectToDelete] = useState(null);
-
-  const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
-  const [localApiKey, setLocalApiKey] = useState("");
-  const [hasSavedKey, setHasSavedKey] = useState(false);
-  const [isMagicLoading, setIsMagicLoading] = useState(false);
-
   const [analyzingPhotos, setAnalyzingPhotos] = useState({});
   const [reportConfig, setReportConfig] = useState({ isOpen: false, type: "", title: "" });
   const [generatedReport, setGeneratedReport] = useState("");
@@ -209,13 +165,20 @@ function App() {
   const [isNoteLoading, setIsNoteLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [chatImage, setChatImage] = useState(null);
-  
   const chatFileInputRef = useRef(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [isMagicLoading, setIsMagicLoading] = useState(false);
+
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [isTranslating, setIsTranslating] = useState(false);
 
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
 
@@ -229,41 +192,39 @@ function App() {
     window.print();
   };
 
-  useEffect(() => {
-    const existingKey = localStorage.getItem("gemini_api_key");
-    if (existingKey) {
-      setLocalApiKey(existingKey);
-      setHasSavedKey(true);
-    }
-  }, []);
-
-  const handleSaveSettings = (e) => {
-    e.preventDefault();
-    if (localApiKey.trim() !== "") {
-      localStorage.setItem("gemini_api_key", localApiKey.trim());
-      setHasSavedKey(true);
-    }
-    setShowSettings(false); 
-    showNotification("API Sleutel veilig opgeslagen!", "success");
-  };
-
-  // Enkel URL routing voor het openen van een map, de rest is React State
+  // --- NETLIFY NAVIGATIE & HARDWARE TERUG-KNOP LOGICA ---
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
       
-      // Sluit alle vensters als de navigatie verandert
+      // Sluit standaard alle overlays als de URL verandert (cruciaal voor GSM terug-knop)
       setShowAddModal(false);
-      setShowSettings(false);
-      setIsCameraOpen(false);
+      setIsCameraOpen(false); 
       setProjectToDelete(null);
       setIsChatOpen(false);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
 
       if (hash.startsWith("#project/")) {
-        const id = hash.split("/")[1];
+        const parts = hash.split("/");
+        const id = parts[1];
+        const action = parts[2];
         setSelectedProjectId(id);
         setActiveView("detail");
+        
+        // Open specifieke overlays op basis van de URL
+        if (action === "chat") setIsChatOpen(true);
+        if (action === "camera") setIsCameraOpen(true);
+        if (action === "delete") {
+            const projToDel = projectsRef.current.find((p) => String(p.id) === String(id));
+            if(projToDel) setProjectToDelete(projToDel);
+        }
+        
+      } else if (hash === "#new-project") {
+        setShowAddModal(true);
+        setActiveView("list");
+      } else if (hash === "#chat") {
+        setIsChatOpen(true);
+        setActiveView("list");
       } else {
         setActiveView("list");
         setSelectedProjectId(null);
@@ -276,9 +237,9 @@ function App() {
   }, []);
 
   const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
-  
   const handleBackToList = () => {
-    window.location.hash = "";
+    if (window.history.length > 1 && window.location.hash !== "") { window.history.back(); } 
+    else { window.location.hash = ""; }
   };
 
   useEffect(() => {
@@ -322,41 +283,51 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- HOGE KWALITEIT CAMERA ---
-  const startCamera = async () => {
-    try {
-      const constraints = {
+  // --- CAMERA MODULE (Aangestuurd via de isCameraOpen React State) ---
+  useEffect(() => {
+    let isMounted = true;
+    let localStream = null;
+
+    if (isCameraOpen) {
+      navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 3840 }, 
+          width: { ideal: 4096 }, // Forceer hoge resolutie hardware
           height: { ideal: 2160 }
         }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setIsCameraOpen(true);
-      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
-    } catch (err) {
-      showNotification("Geen toegang tot camera of resolutie niet ondersteund.", "error");
+      }).then(stream => {
+        if (!isMounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        localStream = stream;
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }).catch(err => {
+        showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
+        window.history.back(); // Ga automatisch terug als camera faalt
+      });
     }
-  };
 
-  const stopCamera = () => {
-    setIsCameraOpen(false);
-    if (streamRef.current) { 
-      streamRef.current.getTracks().forEach(track => track.stop()); 
-      streamRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
-  }, []);
+    // Schakel camera veilig uit als isCameraOpen false wordt (bijv. door de terug-knop in te drukken)
+    return () => {
+      isMounted = false;
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      } else if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [isCameraOpen]);
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
     
+    // Flits animatie
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -376,7 +347,7 @@ function App() {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen in hoge kwaliteit!", "success");
+      showNotification("📸 Foto opgeslagen!", "success");
     });
   };
 
@@ -444,18 +415,16 @@ function App() {
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
   };
 
-  // --- DELETE PROJECT FUNCTIE ---
   const handleConfirmDeleteProject = async () => {
     if (!projectToDelete) return;
     const updated = projects.filter((p) => String(p.id) !== String(projectToDelete.id));
     await saveToDB(updated);
     setProjects(updated);
     setProjectToDelete(null);
-    window.location.hash = ""; // Terug naar startscherm
+    window.location.hash = ""; 
     showNotification("🗑️ Dossier definitief verwijderd.", "success");
   };
 
-  // --- PROJECT TOEVOEGEN FUNCTIE ---
   const handleAddProject = async (e) => {
     e.preventDefault();
     if (!newProjectData.name || !newProjectData.date) return showNotification("Vul naam en datum in.", "error");
@@ -471,7 +440,7 @@ function App() {
     await saveToDB(updated); 
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    setShowAddModal(false); // Sluit de modal direct
+    window.location.hash = ""; 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
@@ -539,12 +508,13 @@ function App() {
       : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
+    window.location.hash = `project/${activeProject.id}/${type}`; 
     
     try {
       const text = await executeAI(promptText);
       setGeneratedReport(text); setReportStatus("success");
     } catch (error) { 
-      setReportConfig({ ...reportConfig, isOpen: false }); showNotification(`AI Fout: ${error.message}`, "error");
+      setReportConfig({ ...reportConfig, isOpen: false }); window.history.back(); showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
 
@@ -621,10 +591,6 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
-          
-          <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-white transition-colors" title="Systeem Instellingen">
-            <Settings size={20} />
-          </button>
 
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
@@ -639,7 +605,7 @@ function App() {
                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Projecten</h2>
                 <p className="text-slate-500 text-sm">Beheer de keukeninstallaties van Goossens.</p>
               </div>
-              <button onClick={() => setShowAddModal(true)} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
+              <button onClick={() => window.location.hash = "new-project"} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
                 <Plus size={20} /> Nieuw Project
               </button>
             </div>
@@ -690,15 +656,14 @@ function App() {
                     <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                    {/* DUBBELKLIK OM TE VERWIJDEREN */}
-                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => setProjectToDelete(activeProject)} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => window.location.hash = `project/${activeProject.id}/delete`} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                     <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                   </div>
                 </div>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
+                <button onClick={() => window.location.hash = `project/${activeProject.id}/camera`} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
                 <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
               </div>
 
@@ -710,15 +675,15 @@ function App() {
                 </div>
 
                 {activeProject.status === "Service nodig" && (
-                  <div className="mb-6 p-4 bg-rose-50 rounded-2xl border border-rose-100 animate-in fade-in print:bg-transparent print:border-none print:p-0">
-                    <label className="block text-sm font-bold text-rose-800 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
-                    <select className="w-full p-3 bg-white border border-rose-200 rounded-xl focus:ring-2 focus:ring-rose-500 outline-none text-sm text-slate-700 appearance-none font-medium print:hidden" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
+                  <div className="mb-6 p-5 bg-red-100 rounded-2xl border-2 border-red-500 shadow-md animate-in fade-in print:bg-transparent print:border-none print:p-0">
+                    <label className="block text-sm font-bold text-red-900 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
+                    <select className="w-full p-3 bg-white border-2 border-red-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-sm text-slate-700 appearance-none font-bold shadow-sm print:hidden" value={activeProject.workHours || ""} onChange={(e) => handleUpdateWorkHours(e.target.value)}>
                       <option value="" disabled>Selecteer aantal uren...</option>
                       {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8].map((h) => (
                         <option key={h} value={`${h} uur`}>{h} uur</option>
                       ))}
                     </select>
-                    <p className="hidden print:block text-lg font-medium text-slate-700">{activeProject.workHours || "Geen uren opgegeven"}</p>
+                    <p className="hidden print:block text-lg font-bold text-red-700">{activeProject.workHours || "Geen uren opgegeven"}</p>
                   </div>
                 )}
 
@@ -763,8 +728,8 @@ function App() {
               <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                 <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button onClick={() => handleGenerateReport("email")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                  <button onClick={() => handleGenerateReport("snaglist")} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                  <button onClick={() => window.location.hash = `project/${activeProject.id}/email`} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                  <button onClick={() => window.location.hash = `project/${activeProject.id}/snaglist`} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                 </div>
               </div>
 
@@ -804,8 +769,8 @@ function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2"><Plus size={14}/> Nieuw Project Aanmaken</h3>
-              <button type="button" onClick={() => setShowAddModal(false)}><X size={20} /></button>
+              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={24} /></button>
             </div>
             <form onSubmit={handleAddProject} className="p-6 space-y-4">
               <div>
@@ -813,7 +778,7 @@ function App() {
                 <input type="text" required placeholder="Bijv. Peeters" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer (Optioneel)</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer</label>
                 <input type="text" placeholder="Bijv. 1234" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
               </div>
               <div>
@@ -821,11 +786,15 @@ function App() {
                 <input type="date" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur (Optioneel)</label>
-                <input type="text" placeholder="Bijv. 1 dag" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})} />
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur</label>
+                <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
+                  <option value="1 dag">1 dag</option>
+                  <option value="2 dagen">2 dagen</option>
+                  <option value="3 dagen">3 dagen</option>
+                </select>
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-3 font-bold text-slate-500 text-xs bg-slate-100 rounded-xl hover:bg-slate-200">Annuleren</button>
+                <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs bg-slate-100 rounded-xl hover:bg-slate-200">Annuleren</button>
                 <button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg hover:bg-blue-700">Aanmaken</button>
               </div>
             </form>
@@ -839,7 +808,7 @@ function App() {
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
               <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><AlertTriangle size={14}/> Dossier Verwijderen</h3>
-              <button type="button" onClick={() => setProjectToDelete(null)}><X size={20} /></button>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
             </div>
             <div className="p-8 text-center space-y-4">
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -849,7 +818,7 @@ function App() {
               <p className="text-slate-500 text-sm">Dit verwijdert alle foto's, notities en handtekeningen. Dit kan niet ongedaan worden gemaakt.</p>
             </div>
             <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
+              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
               <button type="button" onClick={handleConfirmDeleteProject} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-lg transition-colors">Ja, verwijderen</button>
             </div>
           </div>
@@ -861,7 +830,7 @@ function App() {
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
             <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
-            <button onClick={stopCamera} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
+            <button onClick={() => window.history.back()} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
           <div className="flex-1 relative bg-black overflow-hidden">
              <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
@@ -871,34 +840,6 @@ function App() {
                 <Camera size={32} className="text-slate-800" />
              </button>
           </div>
-        </div>
-      )}
-
-      {/* INSTELLINGEN MODAL (GEEN PIN, GEWOON KLIKKEN ZOALS VROEGER) */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in zoom-in-95 duration-200">
-          <form onSubmit={handleSaveSettings} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col border-t-8 border-blue-600">
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2"><Settings size={14}/> Systeem Instellingen</h3>
-              <button type="button" onClick={() => setShowSettings(false)}><X size={20} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-500 font-medium">Beheer hier de Google AI verbinding voor deze iPad/GSM. De sleutel wordt lokaal versleuteld bewaard.</p>
-              
-              {hasSavedKey && (
-                <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-sm font-bold flex items-center gap-2 border border-emerald-200">
-                  <CheckCircle size={18} /> Er is een actieve AI sleutel opgeslagen.
-                </div>
-              )}
-
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mt-4">Sleutel Invoeren</label>
-              <input type="password" placeholder={hasSavedKey ? "••••••••••••••••••••••••" : "Plak hier je AIzaSy... sleutel"} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono placeholder:tracking-widest" value={localApiKey} onChange={(e) => setLocalApiKey(e.target.value)} />
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => setShowSettings(false)} className="flex-1 py-3 font-bold text-slate-500 text-xs hover:bg-slate-200 rounded-xl transition-colors">Sluiten</button>
-              <button type="submit" disabled={!localApiKey} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg disabled:opacity-50 transition-all hover:bg-blue-700">Opslaan</button>
-            </div>
-          </form>
         </div>
       )}
 
@@ -926,7 +867,7 @@ function App() {
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
@@ -946,7 +887,7 @@ function App() {
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => setIsChatOpen(true)} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
