@@ -38,7 +38,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
+const compressImage = (base64Str, maxWidth = 1920, quality = 0.9) => {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Str;
@@ -257,7 +257,7 @@ function App() {
       localStorage.setItem("gemini_api_key", localApiKey.trim());
       setHasSavedKey(true);
     }
-    setLocalApiKey(""); // Maak input veld direct weer leeg na opslaan
+    setLocalApiKey(""); 
     window.location.hash = ""; 
     showNotification("API Sleutel veilig opgeslagen!", "success");
   };
@@ -284,7 +284,6 @@ function App() {
         setShowAddModal(true);
         setActiveView("list");
       } else if (hash === "#settings") {
-        // Vraag eerst om PIN in plaats van direct instellingen te openen
         setShowPinModal(true);
         setActiveView("list");
       } else if (hash === "#chat") {
@@ -350,12 +349,20 @@ function App() {
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      const constraints = {
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1920, max: 3840 },
+          height: { ideal: 1080, max: 2160 }
+        }
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       setIsCameraOpen(true);
       setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
     } catch (err) {
-      showNotification("Geen toegang tot camera.", "error");
+      showNotification("Geen toegang tot camera of resolutie niet ondersteund.", "error");
     }
   };
 
@@ -379,9 +386,9 @@ function App() {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
-    const base64Url = canvas.toDataURL("image/jpeg", 0.8);
+    const base64Url = canvas.toDataURL("image/jpeg", 0.95);
 
-    compressImage(base64Url, 1200, 0.7).then(async (compressedBase64) => {
+    compressImage(base64Url, 1920, 0.9).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       setProjects(prevProjects => {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
@@ -403,7 +410,7 @@ function App() {
         reader.onloadend = () => resolve(reader.result);
         reader.readAsDataURL(file);
       });
-      const compressedBase64 = await compressImage(base64Url, 1200, 0.7);
+      const compressedBase64 = await compressImage(base64Url, 1920, 0.9);
       newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
     }
 
@@ -613,7 +620,6 @@ function App() {
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
           
-          {/* TANDWIEL INSTELLINGEN MENU */}
           <button onClick={() => { window.location.hash = "settings"; }} className="p-2 text-slate-400 hover:text-white transition-colors" title="Systeem Instellingen">
             <Settings size={20} />
           </button>
