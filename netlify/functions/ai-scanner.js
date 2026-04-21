@@ -35,6 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -191,14 +192,16 @@ function App() {
     window.print();
   };
 
+  // --- NETLIFY NAVIGATIE & HARDWARE TERUG-KNOP LOGICA ---
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-
+      
+      // Sluit standaard alle overlays als de URL verandert (cruciaal voor GSM terug-knop)
       setShowAddModal(false);
-      setIsChatOpen(false);
       setIsCameraOpen(false); 
       setProjectToDelete(null);
+      setIsChatOpen(false);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
 
       if (hash.startsWith("#project/")) {
@@ -208,8 +211,13 @@ function App() {
         setSelectedProjectId(id);
         setActiveView("detail");
         
+        // Open specifieke overlays op basis van de URL
         if (action === "chat") setIsChatOpen(true);
         if (action === "camera") setIsCameraOpen(true);
+        if (action === "delete") {
+            const projToDel = projectsRef.current.find((p) => String(p.id) === String(id));
+            if(projToDel) setProjectToDelete(projToDel);
+        }
         
       } else if (hash === "#new-project") {
         setShowAddModal(true);
@@ -275,15 +283,16 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE ---
+  // --- CAMERA MODULE (Aangestuurd via de isCameraOpen React State) ---
   useEffect(() => {
     let isMounted = true;
+    let localStream = null;
 
     if (isCameraOpen) {
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 4096 },
+          width: { ideal: 4096 }, // Forceer hoge resolutie hardware
           height: { ideal: 2160 }
         }
       }).then(stream => {
@@ -291,20 +300,24 @@ function App() {
           stream.getTracks().forEach(track => track.stop());
           return;
         }
+        localStream = stream;
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.play();
         }
       }).catch(err => {
-        showNotification("Geen toegang tot camera. Controleer instellingen.", "error");
-        window.history.back(); 
+        showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
+        window.history.back(); // Ga automatisch terug als camera faalt
       });
     }
 
+    // Schakel camera veilig uit als isCameraOpen false wordt (bijv. door de terug-knop in te drukken)
     return () => {
       isMounted = false;
-      if (streamRef.current) {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      } else if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
@@ -314,6 +327,7 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
     
+    // Flits animatie
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -401,18 +415,16 @@ function App() {
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
   };
 
-  // --- DELETE PROJECT FUNCTIE ---
   const handleConfirmDeleteProject = async () => {
     if (!projectToDelete) return;
     const updated = projects.filter((p) => String(p.id) !== String(projectToDelete.id));
     await saveToDB(updated);
     setProjects(updated);
     setProjectToDelete(null);
-    window.location.hash = ""; // Terug naar het hoofdmenu
+    window.location.hash = ""; 
     showNotification("🗑️ Dossier definitief verwijderd.", "success");
   };
 
-  // --- PROJECT TOEVOEGEN FUNCTIE ---
   const handleAddProject = async (e) => {
     e.preventDefault();
     if (!newProjectData.name || !newProjectData.date) return showNotification("Vul naam en datum in.", "error");
@@ -428,7 +440,7 @@ function App() {
     await saveToDB(updated); 
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.location.hash = ""; // Sluit de modal direct
+    window.location.hash = ""; 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
@@ -496,12 +508,13 @@ function App() {
       : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
+    window.location.hash = `project/${activeProject.id}/${type}`; 
     
     try {
       const text = await executeAI(promptText);
       setGeneratedReport(text); setReportStatus("success");
     } catch (error) { 
-      setReportConfig({ ...reportConfig, isOpen: false }); showNotification(`AI Fout: ${error.message}`, "error");
+      setReportConfig({ ...reportConfig, isOpen: false }); window.history.back(); showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
 
@@ -643,7 +656,7 @@ function App() {
                     <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => setProjectToDelete(activeProject)} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => window.location.hash = `project/${activeProject.id}/delete`} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                     <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                   </div>
                 </div>
@@ -756,8 +769,8 @@ function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2"><Plus size={14}/> Nieuw Project Aanmaken</h3>
-              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
+              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={24} /></button>
             </div>
             <form onSubmit={handleAddProject} className="p-6 space-y-4">
               <div>
@@ -765,7 +778,7 @@ function App() {
                 <input type="text" required placeholder="Bijv. Peeters" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer (Optioneel)</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer</label>
                 <input type="text" placeholder="Bijv. 1234" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
               </div>
               <div>
@@ -773,8 +786,12 @@ function App() {
                 <input type="date" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur (Optioneel)</label>
-                <input type="text" placeholder="Bijv. 1 dag" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})} />
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur</label>
+                <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
+                  <option value="1 dag">1 dag</option>
+                  <option value="2 dagen">2 dagen</option>
+                  <option value="3 dagen">3 dagen</option>
+                </select>
               </div>
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs bg-slate-100 rounded-xl hover:bg-slate-200">Annuleren</button>
@@ -791,7 +808,7 @@ function App() {
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
               <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><AlertTriangle size={14}/> Dossier Verwijderen</h3>
-              <button type="button" onClick={() => setProjectToDelete(null)}><X size={20} /></button>
+              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
             </div>
             <div className="p-8 text-center space-y-4">
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -801,7 +818,7 @@ function App() {
               <p className="text-slate-500 text-sm">Dit verwijdert alle foto's, notities en handtekeningen. Dit kan niet ongedaan worden gemaakt.</p>
             </div>
             <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => setProjectToDelete(null)} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
+              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
               <button type="button" onClick={handleConfirmDeleteProject} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-lg transition-colors">Ja, verwijderen</button>
             </div>
           </div>
@@ -850,7 +867,7 @@ function App() {
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
