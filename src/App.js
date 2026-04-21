@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -109,18 +108,18 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 
   return (
     <div className="space-y-3 print:hidden">
-      <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
-        <canvas ref={canvasRef} width={600} height={300} className="w-full h-[150px] bg-slate-50 cursor-crosshair touch-none" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
+      {/* UPDATE: Groter handtekening vak (h-[200px] of h-[250px] op grotere schermen) en hogere resolutie (800x400) */}
+      <div className="border-2 border-slate-300 rounded-2xl overflow-hidden bg-white touch-none shadow-inner">
+        <canvas ref={canvasRef} width={800} height={400} className="w-full h-[200px] sm:h-[250px] bg-slate-50 cursor-crosshair touch-none" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
       </div>
-      <div className="flex flex-col sm:flex-row justify-between items-stretch gap-3 mt-2">
-        <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors"><Eraser size={18} /> Wissen</button>
-        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm"><Check size={18} /> Bevestigen</button>
+      <div className="flex flex-col sm:flex-row justify-between items-stretch gap-3 mt-3">
+        <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-4 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors"><Eraser size={18} /> Wissen</button>
+        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-4 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-md"><Check size={18} /> Bevestigen</button>
       </div>
     </div>
   );
 };
 
-// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -192,12 +191,10 @@ function App() {
     window.print();
   };
 
-  // --- NETLIFY NAVIGATIE & HARDWARE TERUG-KNOP LOGICA ---
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-      
-      // Sluit standaard alle overlays als de URL verandert (cruciaal voor GSM terug-knop)
+
       setShowAddModal(false);
       setIsCameraOpen(false); 
       setProjectToDelete(null);
@@ -211,7 +208,6 @@ function App() {
         setSelectedProjectId(id);
         setActiveView("detail");
         
-        // Open specifieke overlays op basis van de URL
         if (action === "chat") setIsChatOpen(true);
         if (action === "camera") setIsCameraOpen(true);
         if (action === "delete") {
@@ -283,7 +279,6 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE (Aangestuurd via de isCameraOpen React State) ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -292,7 +287,7 @@ function App() {
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 4096 }, // Forceer hoge resolutie hardware
+          width: { ideal: 4096 },
           height: { ideal: 2160 }
         }
       }).then(stream => {
@@ -308,11 +303,10 @@ function App() {
         }
       }).catch(err => {
         showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
-        window.history.back(); // Ga automatisch terug als camera faalt
+        window.history.back(); 
       });
     }
 
-    // Schakel camera veilig uit als isCameraOpen false wordt (bijv. door de terug-knop in te drukken)
     return () => {
       isMounted = false;
       if (localStream) {
@@ -327,7 +321,6 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
     
-    // Flits animatie
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -394,7 +387,10 @@ function App() {
     if (!activeProject) return;
     const signature = (newStatus === "Afgewerkt" || newStatus === "Service nodig") ? activeProject.signature : null;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, status: newStatus, signature } : p);
-    await saveToDB(updated); setProjects(updated); showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
+    await saveToDB(updated); setProjects(updated); 
+    
+    // UPDATE: Als status "Service nodig" is, geef een rode 'error' waarschuwingsbalkje in plaats van groen
+    showNotification(`Status gewijzigd naar: ${newStatus}`, newStatus === "Service nodig" ? "error" : "success");
   };
 
   const handleSaveSignature = async (base64Data) => {
@@ -696,7 +692,7 @@ function App() {
                       <SignaturePad onSave={handleSaveSignature} onClear={() => handleSaveSignature(null)} initialSignature={activeProject.signature} />
                     ) : (
                       <div className="space-y-3">
-                        <img src={activeProject.signature} alt="Handtekening Klant" className="h-24 border-b-2 border-slate-800 print:border-black" />
+                        <img src={activeProject.signature} alt="Handtekening Klant" className="h-32 border-b-2 border-slate-800 print:border-black" />
                         <p className="text-xs text-emerald-600 font-bold flex items-center gap-1 print:hidden"><CheckCircle size={14} /> Digitaal getekend</p>
                         <button onClick={() => handleSaveSignature(null)} className="text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors print:hidden flex items-center gap-1">
                           <Eraser size={12} /> Handtekening wissen en opnieuw tekenen
@@ -764,38 +760,45 @@ function App() {
         )}
       </main>
 
-      {/* --- ADD PROJECT MODAL --- */}
+      {/* --- ADD PROJECT MODAL (AANGEPAST MET MODERNE KALENDER EN DROPDOWN) --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+              {/* Tekst 'Nieuw Project Aanmaken' groter gemaakt */}
               <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
-              <button type="button" onClick={() => window.location.hash = ""}><X size={24} /></button>
+              <button type="button" onClick={() => window.location.hash = ""} className="hover:bg-slate-200 p-1 rounded-full transition-colors"><X size={24} /></button>
             </div>
-            <form onSubmit={handleAddProject} className="p-6 space-y-4">
+            <form onSubmit={handleAddProject} className="p-6 space-y-5">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Klantnaam *</label>
-                <input type="text" required placeholder="Bijv. Peeters" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
+                <input type="text" required placeholder="Bijv. Peeters" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer</label>
-                <input type="text" placeholder="Bijv. 1234" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
+                <input type="text" placeholder="Bijv. 1234" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Startdatum *</label>
-                <input type="date" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
+                {/* Moderne strakke kalender input */}
+                <input type="date" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur</label>
-                <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
-                  <option value="1 dag">1 dag</option>
-                  <option value="2 dagen">2 dagen</option>
-                  <option value="3 dagen">3 dagen</option>
-                </select>
+                <div className="relative">
+                  <select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
+                    <option value="1 dag">1 dag</option>
+                    <option value="2 dagen">2 dagen</option>
+                    <option value="3 dagen">3 dagen</option>
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    ▼
+                  </div>
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs bg-slate-100 rounded-xl hover:bg-slate-200">Annuleren</button>
-                <button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg hover:bg-blue-700">Aanmaken</button>
+                <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-4 font-bold text-slate-500 text-sm bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">Annuleren</button>
+                <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 transition-colors">Aanmaken</button>
               </div>
             </form>
           </div>
