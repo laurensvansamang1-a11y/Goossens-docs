@@ -3,8 +3,6 @@ import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar,
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
-
-// --- JOUW GEHEIME PINCODE VOOR HET TANDWIEL ---
 const ADMIN_PIN = "9999"; 
 
 const openDB = () => new Promise((resolve, reject) => {
@@ -38,7 +36,8 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-const compressImage = (base64Str, maxWidth = 1920, quality = 0.9) => {
+// CAMERA UPDATE: Verhoogde maximale breedte naar 2400px en kwaliteit naar 95% voor haarscherpe foto's
+const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Str;
@@ -160,7 +159,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     
     if (!response.ok) {
       if (data.error?.message?.toLowerCase().includes("api key not valid")) {
-        throw new Error("Google herkent je sleutel niet. Heb je hem correct gekopieerd in het menu?");
+        throw new Error("Google herkent je sleutel niet. Heb je hem correct gekopieerd of zijn er restricties actief in Google Cloud?");
       }
       throw new Error(`Google Error: ${data.error?.message || "Onbekende Fout"}`);
     }
@@ -168,7 +167,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout: Google blokkeert. Zet adblockers of VPN uit.");
+      throw new Error("Netwerkfout: Google blokkeert de verbinding. Controleer je internet of VPN.");
     }
     throw error;
   }
@@ -347,13 +346,14 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
+  // --- CAMERA UPDATE: Vraag om 4K resolutie en vul het hele scherm ---
   const startCamera = async () => {
     try {
       const constraints = {
         video: {
           facingMode: "environment",
-          width: { ideal: 1920, max: 3840 },
-          height: { ideal: 1080, max: 2160 }
+          width: { ideal: 4096 }, 
+          height: { ideal: 2160 }
         }
       };
       
@@ -377,24 +377,30 @@ function App() {
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
-    videoRef.current.style.opacity = 0;
+    
+    // Visuele feedback (flits)
+    videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
+    // Pak de ECHTE video resolutie, niet de scherm-resolutie
+    const video = videoRef.current;
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const base64Url = canvas.toDataURL("image/jpeg", 0.95);
+    // Maximale kwaliteit export
+    const base64Url = canvas.toDataURL("image/jpeg", 1.0);
 
-    compressImage(base64Url, 1920, 0.9).then(async (compressedBase64) => {
+    compressImage(base64Url, 2400, 0.95).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       setProjects(prevProjects => {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen!", "success");
+      showNotification("📸 Foto opgeslagen in hoge kwaliteit!", "success");
     });
   };
 
@@ -410,7 +416,7 @@ function App() {
         reader.onloadend = () => resolve(reader.result);
         reader.readAsDataURL(file);
       });
-      const compressedBase64 = await compressImage(base64Url, 1920, 0.9);
+      const compressedBase64 = await compressImage(base64Url, 2400, 0.95);
       newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
     }
 
@@ -469,7 +475,7 @@ function App() {
     const updated = [...projectsRef.current, newProject].sort((a, b) => new Date(a.date) - new Date(b.date));
     await saveToDB(updated); setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.history.back(); showNotification("✨ Projectmap aangemaakt!", "success");
+    window.location.hash = ""; showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
   const handleMagicUpload = async (event) => {
@@ -620,6 +626,7 @@ function App() {
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
           
+          {/* TANDWIEL INSTELLINGEN MENU */}
           <button onClick={() => { window.location.hash = "settings"; }} className="p-2 text-slate-400 hover:text-white transition-colors" title="Systeem Instellingen">
             <Settings size={20} />
           </button>
@@ -796,17 +803,18 @@ function App() {
         )}
       </main>
 
-      {/* SNELVUUR CAMERA OVERLAY */}
+      {/* --- CAMERA UPDATE: VOLLEDIG SCHERM --- */}
       {isCameraOpen && (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
-          <div className="flex justify-between items-center p-4 bg-black text-white shrink-0">
+          <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
             <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
             <button onClick={stopCamera} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
-          <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain transition-opacity duration-100"></video>
+          {/* object-cover zorgt dat de video de hele box vult zonder zwarte randen */}
+          <div className="flex-1 relative bg-black overflow-hidden">
+             <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
           </div>
-          <div className="h-32 bg-black flex items-center justify-center pb-8 shrink-0">
+          <div className="h-32 bg-black flex items-center justify-center pb-8 shrink-0 z-10">
              <button onClick={takeFastPhoto} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center">
                 <Camera size={32} className="text-slate-800" />
              </button>
@@ -837,7 +845,7 @@ function App() {
         </div>
       )}
 
-      {/* INSTELLINGEN MODAL (ALLEEN NA PIN) */}
+      {/* INSTELLINGEN MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in zoom-in-95 duration-200">
           <form onSubmit={handleSaveSettings} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col border-t-8 border-blue-600">
