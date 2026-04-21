@@ -203,7 +203,10 @@ function App() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
+  
+  // State voor project verwijderen (AANGEPAST)
   const [projectToDelete, setProjectToDelete] = useState(null);
+  
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
@@ -259,7 +262,7 @@ function App() {
     showNotification("API Sleutel veilig opgeslagen!", "success");
   };
 
-  // Navigatie & Terug-knop (Camera zit hier nu netjes in verwerkt)
+  // Navigatie & Terug-knop (AANGEPAST: Afhandeling van de "delete" actie)
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -268,8 +271,8 @@ function App() {
       setShowSettings(false);
       setShowPinModal(false);
       setIsChatOpen(false);
-      setIsCameraOpen(false); // Sluit camera standaard als de hash verandert
-      setProjectToDelete(null);
+      setIsCameraOpen(false);
+      setProjectToDelete(null); // Reset de verwijder-state als de hash verandert
       setReportConfig(prev => ({ ...prev, isOpen: false }));
 
       if (hash.startsWith("#project/")) {
@@ -282,6 +285,12 @@ function App() {
         // Open specifieke modules
         if (action === "chat") setIsChatOpen(true);
         if (action === "camera") setIsCameraOpen(true);
+        
+        // Herstel de functionaliteit: Als de hash eindigt op /delete, stel het te verwijderen project in
+        if (action === "delete") {
+            const projToDel = projectsRef.current.find((p) => String(p.id) === String(id));
+            if(projToDel) setProjectToDelete(projToDel);
+        }
         
       } else if (hash === "#new-project") {
         setShowAddModal(true);
@@ -350,7 +359,6 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE (Aangestuurd via de isCameraOpen variabele) ---
   useEffect(() => {
     let isMounted = true;
 
@@ -358,7 +366,7 @@ function App() {
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 4096 }, // Forceer hoge resolutie hardware
+          width: { ideal: 4096 }, 
           height: { ideal: 2160 }
         }
       }).then(stream => {
@@ -373,11 +381,10 @@ function App() {
         }
       }).catch(err => {
         showNotification("Geen toegang tot camera. Controleer instellingen.", "error");
-        window.history.back(); // Ga automatisch terug als camera faalt
+        window.history.back(); 
       });
     }
 
-    // Schakel camera veilig uit als we het scherm verlaten
     return () => {
       isMounted = false;
       if (streamRef.current) {
@@ -390,7 +397,6 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
     
-    // Flits animatie
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -476,6 +482,17 @@ function App() {
     if (!window.confirm("Weet je zeker dat je deze foto wilt verwijderen?")) return;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
+  };
+
+  // NIEUWE FUNCTIE: Daadwerkelijk verwijderen van een heel project
+  const handleConfirmDeleteProject = async () => {
+    if (!projectToDelete) return;
+    const updated = projects.filter((p) => String(p.id) !== String(projectToDelete.id));
+    await saveToDB(updated);
+    setProjects(updated);
+    setProjectToDelete(null);
+    window.location.hash = ""; // Ga terug naar de lijst
+    showNotification("🗑️ Dossier definitief verwijderd.", "success");
   };
 
   const handleAddProject = async (e) => {
@@ -704,7 +721,8 @@ function App() {
                     <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project/${activeProject.id}/delete`; setProjectToDelete(activeProject); }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                    {/* AANGEPAST: Dubbelklikken voor de Verwijder-Modal */}
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { window.location.hash = `project/${activeProject.id}/delete`; }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                     <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                   </div>
                 </div>
@@ -812,124 +830,28 @@ function App() {
         )}
       </main>
 
-      {/* --- CAMERA UPDATE: VOLLEDIG SCHERM EN BACK-BUTTON LOGICA --- */}
-      {isCameraOpen && (
-        <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
-          <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
-            <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
-            {/* Met window.history.back() sluit de camera nu veilig */}
-            <button onClick={() => window.history.back()} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
-          </div>
-          <div className="flex-1 relative bg-black overflow-hidden">
-             <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
-          </div>
-          <div className="h-32 bg-black flex items-center justify-center pb-8 shrink-0 z-10">
-             <button onClick={takeFastPhoto} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center">
-                <Camera size={32} className="text-slate-800" />
-             </button>
-          </div>
-        </div>
-      )}
-
-      {/* PIN BEVEILIGING MODAL */}
-      {showPinModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
-          <form onSubmit={handlePinSubmit} className="bg-white w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl flex flex-col">
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><Lock size={14}/> Beveiligde Zone</h3>
-              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
-            </div>
-            <div className="p-8 space-y-6 text-center">
-              <Lock size={40} className="mx-auto text-slate-300" />
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Voer Beheerder PIN in</label>
-                <input type="password" autoFocus placeholder="••••" maxLength={4} className="w-32 mx-auto text-center p-4 bg-slate-100 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 text-2xl font-black tracking-[0.5em]" value={pinInput} onChange={(e) => setPinInput(e.target.value)} />
-              </div>
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs">Annuleren</button>
-              <button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg">Ontgrendel</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* INSTELLINGEN MODAL */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 print:hidden animate-in zoom-in-95 duration-200">
-          <form onSubmit={handleSaveSettings} className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col border-t-8 border-blue-600">
-            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2"><Settings size={14}/> Systeem Instellingen</h3>
-              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-slate-500 font-medium">Beheer hier de Google AI verbinding voor deze iPad/GSM. De sleutel wordt lokaal versleuteld bewaard.</p>
-              
-              {hasSavedKey && (
-                <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-sm font-bold flex items-center gap-2 border border-emerald-200">
-                  <CheckCircle size={18} /> Er is een actieve AI sleutel beveiligd opgeslagen.
-                </div>
-              )}
-
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mt-4">Nieuwe Sleutel Invoeren (Optioneel)</label>
-              <input type="password" placeholder={hasSavedKey ? "••••••••••••••••••••••••" : "Plak hier je AIzaSy... sleutel"} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono placeholder:tracking-widest" value={localApiKey} onChange={(e) => setLocalApiKey(e.target.value)} />
-            </div>
-            <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-500 text-xs hover:bg-slate-200 rounded-xl transition-colors">Sluiten</button>
-              <button type="submit" disabled={!localApiKey} className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold text-xs shadow-lg disabled:opacity-50 transition-all hover:bg-blue-700">Sleutel Opslaan</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
-      {reportConfig.isOpen && (
+      {/* --- DE HERSTELDE DELETE MODAL --- */}
+      {projectToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
-            <div className="p-6 overflow-y-auto flex-1 bg-white">
-              {reportStatus === "loading" ? <div className="py-20 text-center space-y-4"><Loader2 className="animate-spin mx-auto text-blue-600" size={40} /><p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">AI stelt document op...</p></div> : (
-                <div className="space-y-4">
-                  <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
-                  <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => window.location.hash = ""} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
-                </div>
-              )}
+          <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+              <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><AlertTriangle size={14}/> Dossier Verwijderen</h3>
+              <button type="button" onClick={() => window.history.back()}><X size={20} /></button>
+            </div>
+            <div className="p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={32} />
+              </div>
+              <p className="text-slate-800 font-bold text-lg">Weet je zeker dat je het dossier van {projectToDelete.name} wilt verwijderen?</p>
+              <p className="text-slate-500 text-sm">Dit verwijdert alle foto's, notities en handtekeningen. Dit kan niet ongedaan worden gemaakt.</p>
+            </div>
+            <div className="p-6 bg-slate-50 flex gap-3">
+              <button type="button" onClick={() => window.history.back()} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
+              <button type="button" onClick={handleConfirmDeleteProject} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-lg transition-colors">Ja, verwijderen</button>
             </div>
           </div>
         </div>
       )}
-
-      {/* AI CHAT ASSISTENT */}
-      <div className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-[60] flex flex-col items-end pointer-events-none print:hidden">
-        {isChatOpen && (
-          <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
-            <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
-              <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`max-w-[85%] p-3 rounded-2xl text-sm font-medium ${m.role === "user" ? "bg-blue-600 text-white self-end rounded-tr-none ml-auto" : "bg-white text-slate-700 border border-slate-200 self-start rounded-tl-none shadow-sm"}`}>
-                  {m.image && <img src={m.image} className="rounded-lg mb-2 border border-black/10" alt="Chat bijlage" />}
-                  <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
-                </div>
-              ))}
-              {isChatLoading && <div className="bg-white border border-slate-200 p-3 rounded-2xl self-start rounded-tl-none flex items-center gap-2 text-xs font-bold text-slate-400 shadow-sm"><Loader2 className="animate-spin" size={14} /> AI denkt na...</div>}
-            </div>
-            {chatImage && <div className="p-2 bg-slate-200 flex gap-2 shrink-0"><div className="relative w-12 h-12"><img src={chatImage} className="w-full h-full object-cover rounded" alt="Chat preview" /><button onClick={() => setChatImage(null)} className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"><X size={10} /></button></div></div>}
-            <div className="p-3 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
-              <button onClick={() => chatFileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-blue-600 transition-colors shrink-0"><Paperclip size={20} /></button>
-              <input type="text" className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Stel een technische vraag..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} />
-              <button onClick={handleSendMessage} className="bg-blue-600 text-white p-3 rounded-xl shrink-0 shadow-md hover:bg-blue-700 transition-colors"><Send size={18} /></button>
-            </div>
-            <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
-          </div>
-        )}
-        <button onClick={() => { window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"; setIsChatOpen(true); }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
-          <MessageSquare size={24} />
-        </button>
-      </div>
 
       <input type="file" accept="image/*" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={handleMultipleUpload} />
       
