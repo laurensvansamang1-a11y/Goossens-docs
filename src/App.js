@@ -36,7 +36,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// CAMERA UPDATE: Verhoogde maximale breedte naar 2400px en kwaliteit naar 95% voor haarscherpe foto's
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -159,7 +158,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     
     if (!response.ok) {
       if (data.error?.message?.toLowerCase().includes("api key not valid")) {
-        throw new Error("Google herkent je sleutel niet. Heb je hem correct gekopieerd of zijn er restricties actief in Google Cloud?");
+        throw new Error("Google herkent je sleutel niet. Controleer je Google Cloud Instellingen.");
       }
       throw new Error(`Google Error: ${data.error?.message || "Onbekende Fout"}`);
     }
@@ -167,7 +166,7 @@ const executeAI = async (promptText, mimeType = null, base64Data = null, forceJs
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } catch (error) {
     if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout: Google blokkeert de verbinding. Controleer je internet of VPN.");
+      throw new Error("Netwerkfout: Google blokkeert de verbinding. Controleer je internet.");
     }
     throw error;
   }
@@ -207,7 +206,6 @@ function App() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
-  // Beveiligd Instellingen Menu
   const [showSettings, setShowSettings] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -261,6 +259,7 @@ function App() {
     showNotification("API Sleutel veilig opgeslagen!", "success");
   };
 
+  // Navigatie & Terug-knop (Camera zit hier nu netjes in verwerkt)
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -269,6 +268,7 @@ function App() {
       setShowSettings(false);
       setShowPinModal(false);
       setIsChatOpen(false);
+      setIsCameraOpen(false); // Sluit camera standaard als de hash verandert
       setProjectToDelete(null);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
 
@@ -278,7 +278,11 @@ function App() {
         const action = parts[2];
         setSelectedProjectId(id);
         setActiveView("detail");
+        
+        // Open specifieke modules
         if (action === "chat") setIsChatOpen(true);
+        if (action === "camera") setIsCameraOpen(true);
+        
       } else if (hash === "#new-project") {
         setShowAddModal(true);
         setActiveView("list");
@@ -346,43 +350,50 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA UPDATE: Vraag om 4K resolutie en vul het hele scherm ---
-  const startCamera = async () => {
-    try {
-      const constraints = {
+  // --- CAMERA MODULE (Aangestuurd via de isCameraOpen variabele) ---
+  useEffect(() => {
+    let isMounted = true;
+
+    if (isCameraOpen) {
+      navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 4096 }, 
+          width: { ideal: 4096 }, // Forceer hoge resolutie hardware
           height: { ideal: 2160 }
         }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setIsCameraOpen(true);
-      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
-    } catch (err) {
-      showNotification("Geen toegang tot camera of resolutie niet ondersteund.", "error");
+      }).then(stream => {
+        if (!isMounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play();
+        }
+      }).catch(err => {
+        showNotification("Geen toegang tot camera. Controleer instellingen.", "error");
+        window.history.back(); // Ga automatisch terug als camera faalt
+      });
     }
-  };
 
-  const stopCamera = () => {
-    if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); }
-    setIsCameraOpen(false);
-  };
-
-  useEffect(() => {
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
-  }, []);
+    // Schakel camera veilig uit als we het scherm verlaten
+    return () => {
+      isMounted = false;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [isCameraOpen]);
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
     
-    // Visuele feedback (flits)
+    // Flits animatie
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
-    // Pak de ECHTE video resolutie, niet de scherm-resolutie
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth;
@@ -391,7 +402,6 @@ function App() {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Maximale kwaliteit export
     const base64Url = canvas.toDataURL("image/jpeg", 1.0);
 
     compressImage(base64Url, 2400, 0.95).then(async (compressedBase64) => {
@@ -400,7 +410,7 @@ function App() {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen in hoge kwaliteit!", "success");
+      showNotification("📸 Foto opgeslagen!", "success");
     });
   };
 
@@ -626,7 +636,6 @@ function App() {
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
           
-          {/* TANDWIEL INSTELLINGEN MENU */}
           <button onClick={() => { window.location.hash = "settings"; }} className="p-2 text-slate-400 hover:text-white transition-colors" title="Systeem Instellingen">
             <Settings size={20} />
           </button>
@@ -644,7 +653,7 @@ function App() {
                 <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Projecten</h2>
                 <p className="text-slate-500 text-sm">Beheer de keukeninstallaties van Goossens.</p>
               </div>
-              <button onClick={() => { window.location.hash = "new-project"; setShowAddModal(true); }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
+              <button onClick={() => { window.location.hash = "new-project"; }} className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all active:scale-95">
                 <Plus size={20} /> Nieuw Project
               </button>
             </div>
@@ -702,7 +711,7 @@ function App() {
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
+                <button onClick={() => window.location.hash = `project/${activeProject.id}/camera`} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
                 <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
               </div>
 
@@ -803,14 +812,14 @@ function App() {
         )}
       </main>
 
-      {/* --- CAMERA UPDATE: VOLLEDIG SCHERM --- */}
+      {/* --- CAMERA UPDATE: VOLLEDIG SCHERM EN BACK-BUTTON LOGICA --- */}
       {isCameraOpen && (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
             <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
-            <button onClick={stopCamera} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
+            {/* Met window.history.back() sluit de camera nu veilig */}
+            <button onClick={() => window.history.back()} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
-          {/* object-cover zorgt dat de video de hele box vult zonder zwarte randen */}
           <div className="flex-1 relative bg-black overflow-hidden">
              <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
           </div>
