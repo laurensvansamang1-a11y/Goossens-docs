@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// --- AFBEELDINGSCOMPRESSOR (Met Transparantie-Fix) ---
 const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -44,27 +43,16 @@ const compressImage = (base64Str, maxWidth = 1200, quality = 0.7) => {
       const canvas = document.createElement("canvas");
       let width = img.width;
       let height = img.height;
-
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
+      if (width > maxWidth) { height = Math.round((height * maxWidth) / width); width = maxWidth; }
+      canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
-      
-      // Fix: Voorkomt zwarte vlakken bij transparante PDF/PNG bestanden
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
+      ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, width, height);
       resolve(canvas.toDataURL("image/jpeg", quality));
     };
   });
 };
 
-// --- DIGITALE HANDTEKENING COMPONENT ---
 const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -84,32 +72,19 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
-
-    if (e.touches && e.touches.length > 0) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-
+    if (e.touches && e.touches.length > 0) { clientX = e.touches[0].clientX; clientY = e.touches[0].clientY; } 
+    else { clientX = e.clientX; clientY = e.clientY; }
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
   };
 
   const startDrawing = (e) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const { x, y } = getCoords(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    setIsDrawing(true);
-    setHasDrawn(true);
+    ctx.beginPath(); ctx.moveTo(x, y);
+    setIsDrawing(true); setHasDrawn(true);
   };
 
   const draw = (e) => {
@@ -118,112 +93,48 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     const { x, y } = getCoords(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.lineWidth = 3; 
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    ctx.lineTo(x, y); ctx.stroke();
+    ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.lineJoin = "round";
   };
 
-  const stopDrawing = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-    }
-  };
-
+  const stopDrawing = () => { if (isDrawing) setIsDrawing(false); };
   const clearSignature = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasDrawn(false);
-    onClear();
+    setHasDrawn(false); onClear();
   };
-
-  const confirmSignature = () => {
-    if (hasDrawn) {
-      onSave(canvasRef.current.toDataURL("image/png"));
-    }
-  };
+  const confirmSignature = () => { if (hasDrawn) onSave(canvasRef.current.toDataURL("image/png")); };
 
   return (
     <div className="space-y-3 print:hidden">
       <div className="border-2 border-slate-300 rounded-xl overflow-hidden bg-white touch-none">
-        <canvas
-          ref={canvasRef}
-          width={600} 
-          height={300}
-          className="w-full h-[150px] bg-slate-50 cursor-crosshair touch-none"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-        />
+        <canvas ref={canvasRef} width={600} height={300} className="w-full h-[150px] bg-slate-50 cursor-crosshair touch-none" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
       </div>
       <div className="flex flex-col sm:flex-row justify-between items-stretch gap-3 mt-2">
-        <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors">
-          <Eraser size={18} /> Wissen
-        </button>
-        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm">
-          <Check size={18} /> Bevestigen
-        </button>
+        <button onClick={clearSignature} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 text-sm font-bold transition-colors"><Eraser size={18} /> Wissen</button>
+        <button onClick={confirmSignature} disabled={!hasDrawn} type="button" className="flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:bg-slate-300 disabled:text-slate-500 text-sm font-bold transition-colors shadow-sm"><Check size={18} /> Bevestigen</button>
       </div>
     </div>
   );
 };
 
-// --- SLIMME AI MOTOR (Met 100% stabiele 1.5 flash motor) ---
+// --- VEILIGE CONNECTIE NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
-  
-  // Haalt de sleutel direct op via Netlify variabelen
-  const rawKey = process.env.REACT_APP_GEMINI_API_KEY || "";
-  
-  // Knipt onzichtbare spaties, enters en aanhalingstekens weg
-  const apiKey = rawKey.replace(/['"\s\r\n]/g, "");
-
-  if (!apiKey) {
-    throw new Error("Geen API sleutel gevonden in de code. Controleer of REACT_APP_GEMINI_API_KEY in Netlify staat.");
-  }
-
-  const hasAttachment = !!base64Data;
-  
-  // 100% GARANTIE: We gebruiken de uiterst stabiele industriestandaard motor van Google.
-  const model = "gemini-1.5-flash"; 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const generationConfig = forceJson ? { responseMimeType: "application/json" } : {};
-
-  let apiBody;
-  if (hasAttachment) {
-    apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }, { inlineData: { mimeType: mimeType, data: base64Data } }] }],
-      generationConfig
-    };
-  } else {
-    apiBody = {
-      contents: [{ role: "user", parts: [{ text: promptText }] }],
-      generationConfig
-    };
-  }
+  const url = "/.netlify/functions/ai-scanner";
 
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(apiBody)
+      body: JSON.stringify({ promptText, mimeType, base64Data, forceJson })
     });
 
     const data = await response.json();
-    if (!response.ok) throw new Error(`Google API: ${data.error?.message || "Toegang geweigerd"}`);
-
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (!response.ok) throw new Error(data.error || "Fout bij de server.");
+    return data.result;
   } catch (error) {
-    if (error.message.includes("Failed to fetch")) {
-      throw new Error("Netwerkfout. Check je internetverbinding of zet je AdBlocker uit.");
-    }
-    throw error;
+    throw new Error(`Connectiefout: ${error.message}`);
   }
 };
 
@@ -260,9 +171,13 @@ function App() {
   const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
-  
+
+  // --- SNELVUUR CAMERA STATE ---
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
   const magicUploadRef = useRef(null);
-  const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const activeProject = projects.find((p) => p.id === selectedProjectId);
@@ -273,50 +188,36 @@ function App() {
     return projectDate <= today ? "In uitvoering" : "Gepland";
   };
 
-  // --- NATIVE ROUTING: IOS SWIPE-BACK & ANDROID TERUG-KNOP ---
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
-
       if (hash !== "#new-project") setShowAddModal(false);
       if (!hash.endsWith("/chat") && hash !== "#chat") setIsChatOpen(false);
       if (!hash.endsWith("/delete")) setProjectToDelete(null);
       if (!hash.endsWith("/email") && !hash.endsWith("/snaglist") && !hash.endsWith("/report")) {
         setReportConfig(prev => ({ ...prev, isOpen: false }));
       }
-
       if (hash.startsWith("#project/")) {
         const id = hash.replace("#project/", "").split("/")[0];
-        setSelectedProjectId(id);
-        setActiveView("detail");
+        setSelectedProjectId(id); setActiveView("detail");
       } else if (hash.startsWith("#project-") && !hash.includes("/")) {
         const id = hash.replace("#project-", "");
-        setSelectedProjectId(id);
-        setActiveView("detail");
+        setSelectedProjectId(id); setActiveView("detail");
       } else if (hash === "" || hash === "#new-project" || hash === "#chat") {
-        setActiveView("list");
-        if (hash !== "#chat") setSelectedProjectId(null); 
+        setActiveView("list"); if (hash !== "#chat") setSelectedProjectId(null); 
       }
     };
 
     window.addEventListener("hashchange", handleHashChange);
     handleHashChange(); 
-
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const handleProjectClick = (id) => {
-    window.location.hash = `project/${id}`;
-  };
-
+  const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
   const handleBackToList = () => {
-    if (window.history.length > 1 && window.location.hash !== "") {
-      window.history.back();
-    } else {
-      window.location.hash = ""; 
-    }
+    if (window.history.length > 1 && window.location.hash !== "") { window.history.back(); } 
+    else { window.location.hash = ""; }
   };
-  // --------------------------------------------------------------------
 
   useEffect(() => {
     const initData = async () => {
@@ -330,12 +231,8 @@ function App() {
     initData();
 
     const handleNetwork = () => setIsOnline(navigator.onLine);
-    window.addEventListener("online", handleNetwork);
-    window.addEventListener("offline", handleNetwork);
-    return () => {
-      window.removeEventListener("online", handleNetwork);
-      window.removeEventListener("offline", handleNetwork);
-    };
+    window.addEventListener("online", handleNetwork); window.addEventListener("offline", handleNetwork);
+    return () => { window.removeEventListener("online", handleNetwork); window.removeEventListener("offline", handleNetwork); };
   }, []);
 
   useEffect(() => {
@@ -343,15 +240,9 @@ function App() {
       const hasPendingPhotos = projectsRef.current.some((p) => p.photos.some((photo) => photo.syncStatus === "pending"));
       if (hasPendingPhotos) {
         const syncData = async () => {
-          setIsSyncing(true);
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          const updated = projectsRef.current.map((p) => ({
-            ...p,
-            photos: p.photos.map((photo) => photo.syncStatus === "pending" ? { ...photo, syncStatus: "synced" } : photo),
-          }));
-          await saveToDB(updated);
-          setProjects(updated);
-          setIsSyncing(false);
+          setIsSyncing(true); await new Promise((resolve) => setTimeout(resolve, 2000));
+          const updated = projectsRef.current.map((p) => ({ ...p, photos: p.photos.map((photo) => photo.syncStatus === "pending" ? { ...photo, syncStatus: "synced" } : photo) }));
+          await saveToDB(updated); setProjects(updated); setIsSyncing(false);
           showNotification("☁️ Verbinding hersteld: offline foto's zijn geüpload!", "success");
         };
         syncData();
@@ -362,108 +253,127 @@ function App() {
   const filteredProjects = useMemo(() => {
     if (!searchQuery) return projects;
     const lowerQuery = searchQuery.toLowerCase();
-    return projects.filter((p) =>
-      p.name.toLowerCase().includes(lowerQuery) || p.id.toLowerCase().includes(lowerQuery)
-    );
+    return projects.filter((p) => p.name.toLowerCase().includes(lowerQuery) || p.id.toLowerCase().includes(lowerQuery));
   }, [projects, searchQuery]);
 
   const showNotification = (message, type = "success") => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+    setNotification({ message, type }); setTimeout(() => setNotification(null), 3000);
+  };
+
+  // --- SNELVUUR CAMERA LOGICA ---
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      streamRef.current = stream;
+      setIsCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
+    } catch (err) {
+      showNotification("Geen toegang tot camera. Check permissies.", "error");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); }
+    setIsCameraOpen(false);
+  };
+
+  // Zorgt dat de camera sluit als je de app plots verlaat
+  useEffect(() => {
+    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
+  }, []);
+
+  const takeFastPhoto = () => {
+    if (!videoRef.current || !activeProject) return;
+
+    // Speel een visueel effect (flits) af voor de gebruiker
+    videoRef.current.style.opacity = 0;
+    setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    const base64Url = canvas.toDataURL("image/jpeg", 0.8);
+
+    compressImage(base64Url, 1200, 0.7).then(async (compressedBase64) => {
+      const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
+      
+      // Gebruik een callback om te zorgen dat snelle kliks elkaar niet overschrijven
+      setProjects(prevProjects => {
+        const updated = prevProjects.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
+        saveToDB(updated);
+        return updated;
+      });
+      showNotification("📸 Foto opgeslagen!", "success");
+    });
+  };
+
+  const handleMultipleUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length || !activeProject) return;
+
+    showNotification(`Bezig met verwerken van ${files.length} foto('s)...`, "success");
+
+    let newPhotos = [];
+    for (let file of files) {
+      const reader = new FileReader();
+      const base64Url = await new Promise((resolve) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(file);
+      });
+      const compressedBase64 = await compressImage(base64Url, 1200, 0.7);
+      newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
+    }
+
+    const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [...newPhotos, ...p.photos] } : p);
+    await saveToDB(updated); setProjects(updated);
+    event.target.value = null;
+    showNotification("✅ Upload voltooid!", "success");
   };
 
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showNotification("Spraakherkenning wordt niet ondersteund door deze browser.", "error");
-      return;
-    }
+    if (!SpeechRecognition) { showNotification("Spraakherkenning wordt niet ondersteund.", "error"); return; }
+    if (isListening) { setIsListening(false); return; }
 
-    if (isListening) {
-      setIsListening(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'nl-BE'; 
-    recognition.interimResults = false;
-
+    const recognition = new SpeechRecognition(); recognition.lang = 'nl-BE'; recognition.interimResults = false;
     recognition.onstart = () => setIsListening(true);
     recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
       const currentNotes = activeProject.notes ? activeProject.notes + "\n" : "";
-      const newNotes = currentNotes + "- " + transcript;
-      
-      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: newNotes } : p);
-      await saveToDB(updated);
-      setProjects(updated);
-      showNotification("🎙️ Notitie toegevoegd via spraak!", "success");
+      const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: currentNotes + "- " + transcript } : p);
+      await saveToDB(updated); setProjects(updated); showNotification("🎙️ Notitie toegevoegd!", "success");
     };
-    
-    recognition.onerror = (e) => {
-      setIsListening(false);
-      if(e.error === 'not-allowed') {
-        showNotification("Microfoon toegang geweigerd door browser.", "error");
-      }
-    };
+    recognition.onerror = (e) => { setIsListening(false); if(e.error === 'not-allowed') showNotification("Microfoon toegang geweigerd.", "error"); };
     recognition.onend = () => setIsListening(false);
-    
-    try {
-      recognition.start();
-    } catch (err) {
-      setIsListening(false);
-      showNotification("Kon microfoon niet starten.", "error");
-    }
+    try { recognition.start(); } catch (err) { setIsListening(false); showNotification("Starten mislukt.", "error"); }
   };
 
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
     const signature = (newStatus === "Afgewerkt" || newStatus === "Service nodig") ? activeProject.signature : null;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, status: newStatus, signature } : p);
-    await saveToDB(updated);
-    setProjects(updated);
-    showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
+    await saveToDB(updated); setProjects(updated); showNotification(`Status gewijzigd naar: ${newStatus}`, "success");
   };
 
   const handleSaveSignature = async (base64Data) => {
     if (!activeProject) return;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, signature: base64Data } : p);
-    await saveToDB(updated);
-    setProjects(updated);
-    if (base64Data) showNotification("✍️ Handtekening succesvol bevestigd!", "success");
+    await saveToDB(updated); setProjects(updated); if (base64Data) showNotification("✍️ Handtekening bevestigd!", "success");
   };
 
   const handleUpdateWorkHours = async (hours) => {
     if (!activeProject) return;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, workHours: hours } : p);
-    await saveToDB(updated);
-    setProjects(updated);
-  };
-
-  const handlePhotoCapture = async (event) => {
-    const file = event.target.files[0];
-    if (file && activeProject) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const compressedBase64 = await compressImage(reader.result, 1200, 0.7);
-        const newPhoto = { id: Date.now().toString(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" };
-        
-        const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: [newPhoto, ...p.photos] } : p);
-        await saveToDB(updated);
-        setProjects(updated);
-        showNotification(isOnline ? "Foto direct opgeslagen!" : "Foto lokaal bewaard (geen internet).", isOnline ? "success" : "error");
-      };
-      reader.readAsDataURL(file);
-    }
-    event.target.value = null;
+    await saveToDB(updated); setProjects(updated);
   };
 
   const handleDeletePhoto = async (photoId) => {
     if (!window.confirm("Weet je zeker dat je deze foto wilt verwijderen?")) return;
     const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
-    await saveToDB(updated);
-    setProjects(updated);
-    showNotification("🗑️ Foto verwijderd.", "success");
+    await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
   };
 
   const handleAddProject = async (e) => {
@@ -471,20 +381,16 @@ function App() {
     if (!newProjectData.name || !newProjectData.date) return showNotification("Vul naam en datum in.", "error");
     const newProject = { id: newProjectData.id || `PRJ-MAN-${Date.now().toString().slice(-4)}`, name: newProjectData.name, date: newProjectData.date, duration: newProjectData.duration, status: getDerivedStatus("Gepland", newProjectData.date), photos: [], notes: "", workHours: "", signature: null };
     const updated = [...projectsRef.current, newProject].sort((a, b) => new Date(a.date) - new Date(b.date));
-    await saveToDB(updated);
-    setProjects(updated);
+    await saveToDB(updated); setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.history.back(); // Sluit modal soepel via native history
-    showNotification("✨ Projectmap aangemaakt!", "success");
+    window.history.back(); showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
   const handleMagicUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     setIsMagicLoading(true);
-    
-    const isPDF = file.type.toLowerCase().includes('pdf');
-    showNotification(`🕵️‍♂️ Planning (${isPDF ? 'PDF' : 'Foto'}) wordt geanalyseerd...`, "success");
+    showNotification(`🕵️‍♂️ Scanner analyseert document...`, "success");
     
     try {
       const base64Url = await new Promise((resolve, reject) => {
@@ -494,155 +400,85 @@ function App() {
         reader.readAsDataURL(file);
       });
 
-      let finalBase64Data = "";
-      let finalMimeType = file.type || "application/pdf"; 
+      if (!base64Url || !base64Url.includes(",")) throw new Error("Bestand is onleesbaar.");
 
-      if (isPDF) {
-        finalBase64Data = base64Url.split(",")[1];
-        finalMimeType = "application/pdf";
-      } else if (finalMimeType.includes('image')) {
-        const compressedImage = await compressImage(base64Url, 1600, 0.7);
-        finalBase64Data = compressedImage.split(",")[1];
-        finalMimeType = "image/jpeg";
-      } else {
-         throw new Error("Ongeldig bestandstype. Upload een foto of PDF.");
-      }
+      let finalBase64Data = ""; let finalMimeType = file.type || "application/pdf"; 
+
+      if (finalMimeType.includes('pdf')) { finalBase64Data = base64Url.split(",")[1]; } 
+      else if (finalMimeType.includes('image')) { const compressedImage = await compressImage(base64Url, 1600, 0.7); finalBase64Data = compressedImage.split(",")[1]; } 
+      else { throw new Error("Ongeldig bestandstype. Upload een foto of PDF."); }
       
-      const prompt = `Lees deze projectplanning heel goed af. Extraheer alle projecten.
-      1. "id": Dossiernummer (vaak 4-cijferig getal).
-      2. "name": Klantnaam (alleen de achternaam).
-      3. "date": Startdatum in formaat "YYYY-MM-DD".
-      4. "duration": Duur (bijv. "1 dag" of "2 dagen").
-      
-      Geef UITSLUITEND een valide JSON array terug. Geen object eromheen, geen tekst ervoor of erna. 
-      Voorbeeld structuur: [{"id": "1234", "name": "Voorbeeld", "date": "2026-01-01", "duration": "1 dag"}]`;
+      const prompt = `Lees deze projectplanning heel goed af. Extraheer alle projecten. 1. "id": Dossiernummer (vaak 4-cijferig getal). 2. "name": Klantnaam (alleen de achternaam). 3. "date": Startdatum in formaat "YYYY-MM-DD". 4. "duration": Duur (bijv. "1 dag" of "2 dagen"). Geef UITSLUITEND een valide JSON array terug. Voorbeeld: [{"id": "1234", "name": "Voorbeeld", "date": "2026-01-01", "duration": "1 dag"}]`;
       
       let aiText = await executeAI(prompt, finalMimeType, finalBase64Data, true);
-      
-      let extractedData = [];
-      let parsedRaw = null;
+      let extractedData = []; let parsedRaw = null;
       
       try { 
         let cleanText = aiText.replace(/```json/gi, "").replace(/```/gi, "").trim();
         const jsonMatch = cleanText.match(/\[[\s\S]*\]/);
-        
-        if (jsonMatch) {
-            parsedRaw = JSON.parse(jsonMatch[0]);
-        } else {
-            parsedRaw = JSON.parse(cleanText);
-        }
-      } catch (err) { 
-        throw new Error("AI kon de gegevens niet formatteren. Probeer een duidelijkere scan."); 
-      }
+        if (jsonMatch) parsedRaw = JSON.parse(jsonMatch[0]); else parsedRaw = JSON.parse(cleanText);
+      } catch (err) { throw new Error("AI kon de gegevens niet formatteren. Probeer een duidelijkere scan."); }
       
-      if (Array.isArray(parsedRaw)) {
-        extractedData = parsedRaw;
-      } else if (parsedRaw && typeof parsedRaw === 'object') {
+      if (Array.isArray(parsedRaw)) { extractedData = parsedRaw; } 
+      else if (parsedRaw && typeof parsedRaw === 'object') {
         const foundArray = Object.values(parsedRaw).find(v => Array.isArray(v));
-        if (foundArray) {
-            extractedData = foundArray;
-        } else {
-            extractedData = [parsedRaw]; 
-        }
+        if (foundArray) extractedData = foundArray; else extractedData = [parsedRaw]; 
       }
 
-      if (!Array.isArray(extractedData) || extractedData.length === 0) {
-        throw new Error("Geen projecten gevonden in dit document.");
-      }
+      if (!Array.isArray(extractedData) || extractedData.length === 0) throw new Error("Geen projecten gevonden in dit document.");
 
-      const isHallucination = extractedData.some(p => 
-          !p.name || 
-          p.name.includes("Je bent") || 
-          p.name.includes("Voorbeeld") ||
-          p.name.length > 40
-      );
-
-      if (isHallucination) {
-          throw new Error("Document was onleesbaar voor de AI. Probeer een betere foto.");
-      }
+      const isHallucination = extractedData.some(p => !p.name || p.name.includes("Je bent") || p.name.includes("Voorbeeld") || p.name.length > 40);
+      if (isHallucination) throw new Error("Document was onleesbaar voor de AI. Probeer een betere foto.");
 
       const newProjects = extractedData.map((proj) => ({ 
-          id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, 
-          name: proj.name || "Onbekende Klant", 
-          date: proj.date || new Date().toISOString().split("T")[0], 
-          duration: proj.duration || "1 dag", 
+          id: proj.id || `PRJ-${Math.floor(Math.random() * 10000)}`, name: proj.name || "Onbekende Klant", 
+          date: proj.date || new Date().toISOString().split("T")[0], duration: proj.duration || "1 dag", 
           status: getDerivedStatus("Gepland", proj.date || new Date().toISOString().split("T")[0]), 
-          photos: [], 
-          notes: "", 
-          workHours: "", 
-          signature: null 
+          photos: [], notes: "", workHours: "", signature: null 
       }));
       
       const combined = [...newProjects, ...projectsRef.current.filter((p) => !newProjects.some((np) => np.id === p.id))].sort((a, b) => new Date(a.date) - new Date(b.date));
-      await saveToDB(combined);
-      setProjects(combined);
+      await saveToDB(combined); setProjects(combined);
       showNotification(`✨ Succes: ${newProjects.length} projecten toegevoegd!`, "success");
 
-    } catch (error) { 
-      showNotification(`AI Fout: ${error.message}`, "error"); 
-    } finally { 
-      setIsMagicLoading(false); 
-      event.target.value = null; 
-    }
+    } catch (error) { showNotification(`AI Fout: ${error.message}`, "error"); } 
+    finally { setIsMagicLoading(false); event.target.value = null; }
   };
 
   const handleGenerateReport = async (type) => {
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
-    
     const promptText = type === "email" 
-      ? `Schrijf een korte, professionele en warme e-mail naar de klant (${activeProject.name}). 
-         Context: De keukenplaatser heeft zojuist de plaatsing op de werf afgerond, maar er zijn nog enkele servicepunten genoteerd die nog moeten gebeuren.
-         Instructies: 
-         1. Informeer de klant vriendelijk dat de plaatser de resterende punten heeft genoteerd.
-         2. Geef aan dat deze punten succesvol zijn doorgegeven aan onze binnendienst en dat deze verder uitgewerkt zullen worden.
-         3. BELANGRIJK: Benoem GEEN ENKEL specifiek servicepunt in de tekst.
-         4. BELANGRIJK: Gebruik NIET de woorden "recent servicebezoek" of "tijdens zijn servicebezoek". Het was namelijk een plaatsing/installatie.
-         5. Verzeker de klant dat we ons best doen om alles zo snel mogelijk te verwerken.
-         6. Geef vriendelijk aan dat ze bij eventuele vragen altijd contact met ons mogen opnemen.
-         Formatteer de mail netjes in vloeiend Nederlands.` 
-      : `Maak een beknopte actielijst voor binnendienst. Notities uit het logboek: ${activeProject.notes || "Geen"}. Antwoord in Nederlands.`;
+      ? `Schrijf een korte, professionele e-mail naar de klant (${activeProject.name}). De plaatser is klaar, maar er zijn nog servicepunten. Benoem GEEN specifieke punten. Zeg dat kantoor contact opneemt. In het Nederlands.` 
+      : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
-    setReportStatus("loading"); 
-    setReportConfig({ isOpen: true, type, title });
+    setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
     window.location.hash = `project/${activeProject.id}/${type}`; 
     
     try {
       const text = await executeAI(promptText);
-      setGeneratedReport(text);
-      setReportStatus("success");
+      setGeneratedReport(text); setReportStatus("success");
     } catch (error) { 
-      setReportConfig({ ...reportConfig, isOpen: false });
-      window.history.back();
-      showNotification(`AI Fout: ${error.message}`, "error");
+      setReportConfig({ ...reportConfig, isOpen: false }); window.history.back(); showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
 
   const handleAnalyzePhoto = async (photoId, base64Url) => {
     setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: true }));
     try {
-      const mimeType = "image/jpeg"; 
-      const base64Data = base64Url.split(",")[1];
-      const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf wat je ziet en noteer zichtbare gebreken of gereedschap. In het Nederlands.";
+      const mimeType = "image/jpeg"; const base64Data = base64Url.split(",")[1];
+      const prompt = "Analyseer deze foto van een keukeninstallatie kort. Beschrijf zichtbare gebreken of gereedschap. In het Nederlands.";
       const text = await executeAI(prompt, mimeType, base64Data);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, photos: p.photos.map((photo) => photo.id === photoId ? { ...photo, aiCaption: text } : photo) } : p);
-      await saveToDB(updated);
-      setProjects(updated);
-      showNotification("✨ Foto geanalyseerd door AI.", "success");
-    } catch (error) { 
-      showNotification(`AI Fout: ${error.message}`, "error"); 
-    } finally { 
-      setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); 
-    }
+      await saveToDB(updated); setProjects(updated); showNotification("✨ Foto geanalyseerd door AI.", "success");
+    } catch (error) { showNotification(`AI Fout: ${error.message}`, "error"); } 
+    finally { setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: false })); }
   };
 
   const handleChatImageUpload = async (event) => { 
     const file = event.target.files[0]; 
     if (file) { 
       const reader = new FileReader(); 
-      reader.onloadend = async () => {
-        const compressedBase64 = await compressImage(reader.result, 1000, 0.7);
-        setChatImage(compressedBase64); 
-      };
+      reader.onloadend = async () => { const compressedBase64 = await compressImage(reader.result, 1000, 0.7); setChatImage(compressedBase64); };
       reader.readAsDataURL(file); 
     } 
     event.target.value = null; 
@@ -656,18 +492,10 @@ function App() {
     setChatInput(""); setChatImage(null); setIsChatLoading(true);
     try {
       const prompt = `Je bent expert keukenmonteur. Geef kort, praktisch advies op de vraag: "${userText}"`;
-      let text;
-      if (currentImage) {
-        text = await executeAI(prompt, "image/jpeg", currentImage.split(",")[1]);
-      } else {
-        text = await executeAI(prompt);
-      }
+      let text = await executeAI(prompt, currentImage ? "image/jpeg" : null, currentImage ? currentImage.split(",")[1] : null);
       setChatMessages((prev) => [...prev, { role: "assistant", text }]);
-    } catch (error) { 
-      setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout: ${error.message}` }]); 
-    } finally { 
-      setIsChatLoading(false); 
-    }
+    } catch (error) { setChatMessages((prev) => [...prev, { role: "assistant", text: `❌ Fout: ${error.message}` }]); } 
+    finally { setIsChatLoading(false); }
   };
 
   const handleTranslateReport = async (language) => {
@@ -676,34 +504,21 @@ function App() {
     try {
       const prompt = `Vertaal deze tekst naar het ${language}:\n"${generatedReport}"`;
       const text = await executeAI(prompt);
-      setGeneratedReport(text);
-      showNotification(`✨ Vertaald naar ${language}!`, "success");
-    } catch (error) { 
-      showNotification(`Vertaalfout: ${error.message}`, "error"); 
-    } finally { 
-      setIsTranslating(false); 
-    }
+      setGeneratedReport(text); showNotification(`✨ Vertaald naar ${language}!`, "success");
+    } catch (error) { showNotification(`Vertaalfout: ${error.message}`, "error"); } 
+    finally { setIsTranslating(false); }
   };
 
   const handleStructureNote = async () => {
     if (!activeProject?.notes.trim()) return;
     setIsNoteLoading(true);
     try {
-      const prompt = `Je bent een professionele service-planner voor een keukenbedrijf. Analyseer de volgende ruwe werfnotities: "${activeProject.notes}". Maak een gestructureerd overzicht met de volgende twee koppen (indien van toepassing): 🛠️ WAT ER NOG MOET GEBEUREN (actiepunten voor de monteur) en 📦 WAT ER ONTBREEKT (onderdelen, gereedschap of materialen). Schrijf in helder Nederlands met bullet points. Wees kort en zakelijk.`;
+      const prompt = `Analyseer deze ruwe werfnotities: "${activeProject.notes}". Maak een overzicht met: 🛠️ WAT ER NOG MOET GEBEUREN en 📦 WAT ER ONTBREEKT. Bullet points, zakelijk Nederlands.`;
       const text = await executeAI(prompt);
       const updated = projectsRef.current.map((p) => p.id === activeProject.id ? { ...p, notes: text } : p);
-      await saveToDB(updated);
-      setProjects(updated);
-      showNotification("✨ Service punten overzichtelijk gemaakt!", "success");
-    } catch (error) { 
-      showNotification(`AI Fout: ${error.message}`, "error"); 
-    } finally { 
-      setIsNoteLoading(false); 
-    }
-  };
-
-  const handlePrintPDF = () => {
-    window.print();
+      await saveToDB(updated); setProjects(updated); showNotification("✨ Service punten overzichtelijk gemaakt!", "success");
+    } catch (error) { showNotification(`AI Fout: ${error.message}`, "error"); } 
+    finally { setIsNoteLoading(false); }
   };
 
   return (
@@ -798,9 +613,10 @@ function App() {
                   </div>
                 </div>
                 
+                {/* AANGEPASTE CAMERA & UPLOAD KNOPPEN */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                  <button onClick={() => cameraInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen</span></button>
-                  <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden</span></button>
+                  <button onClick={startCamera} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
+                  <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
                 </div>
 
                 <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
@@ -895,6 +711,24 @@ function App() {
         )}
       </main>
 
+      {/* SNELVUUR CAMERA OVERLAY */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
+          <div className="flex justify-between items-center p-4 bg-black text-white shrink-0">
+            <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
+            <button onClick={stopCamera} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
+          </div>
+          <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain transition-opacity duration-100"></video>
+          </div>
+          <div className="h-32 bg-black flex items-center justify-center pb-8 shrink-0">
+             <button onClick={takeFastPhoto} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+                <Camera size={32} className="text-slate-800" />
+             </button>
+          </div>
+        </div>
+      )}
+
       {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
@@ -971,8 +805,8 @@ function App() {
         </div>
       )}
       
-      <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
-      <input type="file" accept="image/*" ref={fileInputRef} style={{ display: 'none' }} onChange={handlePhotoCapture} />
+      {/* Upload knop voor meerdere foto's tegelijk */}
+      <input type="file" accept="image/*" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={handleMultipleUpload} />
       
       {/* NOTIFICATIE POPUP */}
       {notification && (
