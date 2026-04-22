@@ -35,6 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// Hoge Kwaliteit Compressie (2400px) behouden voor de opslag
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -119,6 +120,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
+// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -190,12 +192,12 @@ function App() {
     window.print();
   };
 
-  // --- SLIMME APP NAVIGATIE: Voorkomt het vastlopen van de Terug-knop op je gsm ---
+  // --- SLIMME APP NAVIGATIE ---
   const closeOverlay = () => {
     if (window.history.length > 1) {
-      window.history.back(); // Wis het venster uit de geschiedenis
+      window.history.back(); 
     } else {
-      window.location.replace("#"); // Forceer startscherm als er geen geschiedenis is
+      window.location.replace("#"); 
     }
   };
 
@@ -240,7 +242,6 @@ function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  // Extra veiligheid: Als een project verwijderd is, maar je gaat "terug" naar het verwijderde dossier, stuur hem naar het hoofdscherm
   useEffect(() => {
     if (isInitialized && activeView === "detail" && selectedProjectId && !activeProject) {
       window.location.replace("#");
@@ -248,6 +249,14 @@ function App() {
   }, [isInitialized, activeView, selectedProjectId, activeProject]);
 
   const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
+  
+  const handleBackToList = () => {
+    if (window.history.length > 1) {
+        window.history.back();
+    } else {
+        window.location.hash = "";
+    }
+  };
 
   useEffect(() => {
     const initData = async () => {
@@ -290,37 +299,49 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  const startCamera = async () => {
-    try {
-      const constraints = {
-        video: {
-          facingMode: "environment",
-          width: { ideal: 4096 },
-          height: { ideal: 2160 }
-        }
-      };
-      
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setIsCameraOpen(true);
-      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
-    } catch (err) {
-      showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
-      closeOverlay(); 
-    }
-  };
-
-  const stopCamera = () => {
-    setIsCameraOpen(false);
-    if (streamRef.current) { 
-      streamRef.current.getTracks().forEach(track => track.stop()); 
-      streamRef.current = null;
-    }
-  };
-
+  // --- GECORRIGEERDE CAMERA MODULE (Voorkomt het zwarte scherm) ---
   useEffect(() => {
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
-  }, []);
+    let isMounted = true;
+    let localStream = null;
+
+    if (isCameraOpen) {
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          // 'ideal' zorgt dat hij de achterkant pakt, maar niet crasht als deze ontbreekt
+          facingMode: { ideal: "environment" },
+          // Veilige stabiele HD-resolutie om hardware crashes (zwart scherm) te voorkomen
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      }).then(stream => {
+        if (!isMounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        localStream = stream;
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          // Zorgt ervoor dat iOS de video direct toestaat af te spelen
+          videoRef.current.setAttribute("playsinline", true);
+          videoRef.current.play().catch(e => console.log("Video afspelen vereist interactie", e));
+        }
+      }).catch(err => {
+        showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
+        closeOverlay(); 
+      });
+    }
+
+    return () => {
+      isMounted = false;
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      } else if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [isCameraOpen]);
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
@@ -338,13 +359,14 @@ function App() {
 
     const base64Url = canvas.toDataURL("image/jpeg", 1.0);
 
+    // Ondanks Full HD scherm, behouden we hier de 2400px compressie voor scherpe opslag
     compressImage(base64Url, 2400, 0.95).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       setProjects(prevProjects => {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen in hoge kwaliteit!", "success");
+      showNotification("📸 Foto opgeslagen!", "success");
     });
   };
 
@@ -420,7 +442,7 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setProjectToDelete(null);
-    window.location.replace("#"); // Forceert het scherm naar het menu na wissen
+    window.location.replace("#"); 
     showNotification("🗑️ Dossier definitief verwijderd.", "success");
   };
 
@@ -592,6 +614,7 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
+
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -640,7 +663,7 @@ function App() {
         ) : activeProject ? (
           <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
             <div className="flex justify-between items-center print:hidden">
-              <button onClick={closeOverlay} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
+              <button onClick={handleBackToList} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
                 <ChevronLeft size={24} /> Terug
               </button>
               <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
@@ -674,6 +697,7 @@ function App() {
                   <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                 </div>
 
+                {/* Rode melding als er service nodig is */}
                 {activeProject.status === "Service nodig" && (
                   <div className="mb-6 p-5 bg-red-100 rounded-2xl border-2 border-red-500 shadow-md animate-in fade-in print:bg-transparent print:border-none print:p-0">
                     <label className="block text-sm font-bold text-red-900 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
