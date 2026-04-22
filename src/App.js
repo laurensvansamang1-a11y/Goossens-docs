@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2 } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2, PlayCircle } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -859,24 +859,34 @@ function App() {
                 </div>
               </div>
 
-              {/* MEDIA WEERGAVE (FOTO EN VIDEO) */}
+              {/* MEDIA WEERGAVE (FOTO EN VIDEO) MET NIEUWE INDICATOR */}
               <div className="space-y-4 print:hidden">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Media Documentatie ({activeProject.photos.length})</p>
                 {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen media in deze map.</div> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {activeProject.photos.map((ph) => (
+                    {activeProject.photos.map((ph) => {
+                      const isVideo = ph.url.startsWith("data:video") || ph.name?.endsWith(".mp4") || ph.name?.endsWith(".webm");
+                      
+                      return (
                       <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
                         
-                        {/* --- AANGEPAST: KLIKKEN OP FOTO VOOR LIGHTBOX --- */}
                         <div className="relative aspect-video bg-black flex items-center justify-center cursor-pointer group" onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/media/${ph.id}`; }}>
-                          {ph.url.startsWith("data:video") || ph.name?.endsWith(".mp4") || ph.name?.endsWith(".webm") ? (
+                          {isVideo ? (
                              <video src={ph.url} className="w-full h-full object-contain pointer-events-none" />
                           ) : (
                              <img src={ph.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 pointer-events-none" alt="Werf media" />
                           )}
                           
+                          {/* DUIDELIJKE VIDEO INDICATOR */}
+                          {isVideo && (
+                             <div className="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none">
+                                <PlayCircle className="text-white opacity-80 shadow-2xl" size={48} />
+                                <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-1 rounded">VIDEO</span>
+                             </div>
+                          )}
+                          
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center pointer-events-none">
-                              <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size={32} />
+                              {!isVideo && <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size={32} />}
                           </div>
 
                           <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm z-10" title="Verwijder media"><Trash2 size={16} /></button>
@@ -884,11 +894,11 @@ function App() {
 
                         <div className="p-4 space-y-3">
                           {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
-                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id] || ph.url.startsWith("data:video")} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50 transition-colors">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} {ph.url.startsWith("data:video") ? "Video Analyse Niet Ondersteund" : "Analyseer Foto (AI)"}</button>
+                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id] || isVideo} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50 transition-colors">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} {isVideo ? "Video Analyse Niet Ondersteund" : "Analyseer Foto (AI)"}</button>
                           )}
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
@@ -922,8 +932,6 @@ function App() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Startdatum *</label>
-                
-                {/* --- NIEUW: STIJLVOLLE KALENDER INPUT --- */}
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <Calendar size={20} className="text-blue-500" />
@@ -936,7 +944,6 @@ function App() {
                     onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} 
                   />
                 </div>
-
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur *</label>
