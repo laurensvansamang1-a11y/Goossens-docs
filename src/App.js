@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2 } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -35,6 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -51,6 +52,14 @@ const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
       resolve(canvas.toDataURL("image/jpeg", quality));
     };
   });
+};
+
+// --- NIEUW: HAPTISCHE FEEDBACK ---
+const triggerVibration = (pattern = 50) => {
+  if (navigator.vibrate) {
+    // pattern kan een enkel getal (50ms) zijn of een array ([50, 100, 50])
+    navigator.vibrate(pattern);
+  }
 };
 
 const SignaturePad = ({ onSave, onClear, initialSignature }) => {
@@ -98,13 +107,21 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   };
 
   const stopDrawing = () => { if (isDrawing) setIsDrawing(false); };
+  
   const clearSignature = () => {
+    triggerVibration(); // Feedback bij wissen
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     setHasDrawn(false); onClear();
   };
-  const confirmSignature = () => { if (hasDrawn) onSave(canvasRef.current.toDataURL("image/png")); };
+  
+  const confirmSignature = () => { 
+      if (hasDrawn) {
+          triggerVibration([50, 50, 50]); // Duidelijke feedback bij succes
+          onSave(canvasRef.current.toDataURL("image/png")); 
+      }
+  };
 
   return (
     <div className="space-y-3 print:hidden">
@@ -171,15 +188,20 @@ function App() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
-  // Status en Refs voor de camera en video functionaliteit
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  
+  // --- NIEUW: LIGHTBOX STATE ---
+  const [fullScreenMedia, setFullScreenMedia] = useState(null);
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
+  
+  // --- NIEUW: AUTO-SAVE TIMER REF ---
+  const saveTimeoutRef = useRef(null);
 
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
 
@@ -194,6 +216,7 @@ function App() {
   };
 
   const closeOverlay = () => {
+    triggerVibration(); // Lichte tik bij sluiten
     if (window.history.length > 1) {
       window.history.back(); 
     } else {
@@ -210,6 +233,7 @@ function App() {
       setProjectToDelete(null);
       setIsChatOpen(false);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
+      setFullScreenMedia(null); // Sluit ook de lightbox af bij navigatie
 
       if (hash.startsWith("#project/")) {
         const parts = hash.split("/");
@@ -223,6 +247,14 @@ function App() {
         if (action === "delete") {
             const projToDel = projectsRef.current.find((p) => String(p.id) === String(id));
             if(projToDel) setProjectToDelete(projToDel);
+        }
+        if (action === "media" && parts[3]) {
+            const mediaId = parts[3];
+            const proj = projectsRef.current.find((p) => String(p.id) === String(id));
+            if(proj) {
+                const mediaItem = proj.photos.find(m => String(m.id) === String(mediaId));
+                if(mediaItem) setFullScreenMedia(mediaItem);
+            }
         }
         
       } else if (hash === "#new-project") {
@@ -251,6 +283,7 @@ function App() {
   const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
   
   const handleBackToList = () => {
+    triggerVibration();
     if (window.history.length > 1) {
         window.history.back();
     } else {
@@ -296,10 +329,13 @@ function App() {
   }, [projects, searchQuery]);
 
   const showNotification = (message, type = "success") => {
+    // Trilling toevoegen aan notificaties. Fout = zwaar, Succes = licht
+    if(type === 'error') triggerVibration([100, 50, 100]);
+    else triggerVibration([50]);
+    
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -346,6 +382,8 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject || isRecording) return;
     
+    triggerVibration(50); // Foto 'klik' voelbaar
+    
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
@@ -369,9 +407,10 @@ function App() {
     });
   };
 
-  // --- NIEUW: VIDEO OPNEMEN ---
   const startRecording = () => {
     if (!streamRef.current || !activeProject) return;
+
+    triggerVibration([50, 50]); // Twee snelle tikjes voor starten video
 
     let mimeType = 'video/webm';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -417,6 +456,7 @@ function App() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      triggerVibration([100]); // Iets langere tik bij stoppen
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -435,7 +475,6 @@ function App() {
         reader.readAsDataURL(file);
       });
       
-      // Als het een foto is, comprimeer het. Als het een video is, sla de base64 direct op.
       if (file.type.startsWith("image/")) {
           const compressedBase64 = await compressImage(base64Url, 2400, 0.95);
           newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
@@ -450,6 +489,7 @@ function App() {
   };
 
   const toggleListening = () => {
+    triggerVibration();
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { showNotification("Spraakherkenning wordt niet ondersteund.", "error"); return; }
     if (isListening) { setIsListening(false); return; }
@@ -467,8 +507,25 @@ function App() {
     try { recognition.start(); } catch (err) { setIsListening(false); showNotification("Starten mislukt.", "error"); }
   };
 
+  // --- NIEUW: AUTO-SAVE LOGICA VOOR NOTITIES ---
+  const handleNotesChange = (e) => {
+    const val = e.target.value;
+    
+    // Direct de UI updaten zodat typen vloeiend blijft
+    setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p));
+    
+    // Wis eventuele oude timers
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    
+    // Zet een nieuwe timer: 1 seconde na de LAATSTE toetsaanslag, slaat hij op in de DB
+    saveTimeoutRef.current = setTimeout(() => {
+        saveToDB(projectsRef.current);
+    }, 1000);
+  };
+
   const handleUpdateStatus = async (newStatus) => {
     if (!activeProject) return;
+    triggerVibration();
     const signature = (newStatus === "Afgewerkt" || newStatus === "Service nodig") ? activeProject.signature : null;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated); setProjects(updated); 
@@ -492,6 +549,8 @@ function App() {
     if (!window.confirm("Weet je zeker dat je dit wilt verwijderen?")) return;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Bestand verwijderd.", "success");
+    // Zorg dat de lightbox ook sluit als we iets deleten terwijl het open is
+    if (fullScreenMedia && fullScreenMedia.id === photoId) closeOverlay();
   };
 
   const handleConfirmDeleteProject = async () => {
@@ -583,6 +642,7 @@ function App() {
   };
 
   const handleGenerateReport = async (type) => {
+    triggerVibration();
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
     const promptText = type === "email" 
       ? `Schrijf een korte, professionele e-mail naar de klant (${activeProject.name}). De plaatser is klaar, maar er zijn nog servicepunten. Benoem GEEN specifieke punten. Zeg dat kantoor contact opneemt. In het Nederlands.` 
@@ -600,6 +660,7 @@ function App() {
   };
 
   const handleAnalyzePhoto = async (photoId, base64Url) => {
+    triggerVibration();
     setAnalyzingPhotos((prev) => ({ ...prev, [photoId]: true }));
     try {
       const mimeType = "image/jpeg"; const base64Data = base64Url.split(",")[1];
@@ -672,6 +733,7 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
+
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -736,14 +798,14 @@ function App() {
                     <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${activeProject.status === "In uitvoering" ? "bg-blue-100 text-blue-700" : activeProject.status === "Afgewerkt" ? "bg-emerald-100 text-emerald-700" : activeProject.status === "Service nodig" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"}`}>{activeProject.status}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-slate-500 mt-2 font-bold">
-                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => window.location.hash = `project/${activeProject.id}/delete`} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-rose-500 transition-colors bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 shadow-sm print:border-none print:bg-transparent print:p-0" onDoubleClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/delete`; }} title="Dubbelklik om map te verwijderen"><FolderOpen size={16} /> {activeProject.id}</span>
                     <span className="flex items-center gap-1.5 text-indigo-700 font-bold bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 shadow-sm print:border-none print:bg-transparent print:p-0"><Calendar size={16} /> {activeProject.date.split("-").reverse().join("-")} <span className="text-indigo-300 mx-0.5">|</span> <Clock size={16} /> {activeProject.duration}</span>
                   </div>
                 </div>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                <button onClick={() => window.location.hash = `project/${activeProject.id}/camera`} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto / Video (Snel)</span></button>
+                <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/camera`; }} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto / Video (Snel)</span></button>
                 <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
               </div>
 
@@ -794,7 +856,8 @@ function App() {
                     </button>
                   </div>
                   
-                  <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={(e) => { const val = e.target.value; setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p)); }} onBlur={() => saveToDB(projectsRef.current)} />
+                  {/* --- AANGEPAST: AUTO-SAVE OP HET TEKSTVAK --- */}
+                  <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={handleNotesChange} />
                   
                   <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
                     {activeProject.notes || "Geen notities of service punten opgegeven."}
@@ -808,8 +871,8 @@ function App() {
               <div className="bg-indigo-50/50 p-5 sm:p-6 rounded-3xl border border-indigo-100 print:hidden">
                 <h3 className="text-sm sm:text-base font-black text-indigo-800 uppercase tracking-wider mb-4 flex items-center gap-2"><Sparkles size={18} /> Slimme AI Acties</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <button onClick={() => window.location.hash = `project/${activeProject.id}/email`} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
-                  <button onClick={() => window.location.hash = `project/${activeProject.id}/snaglist`} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
+                  <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/email`; }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><FileText size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">E-mail Klant (Service)</span></button>
+                  <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/snaglist`; }} className="bg-white p-4 sm:p-5 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center gap-2 hover:bg-indigo-50 hover:border-indigo-300 transition-all shadow-sm active:scale-95 text-center"><span className="text-indigo-500"><ListChecks size={24} /></span><span className="text-xs sm:text-sm font-bold text-indigo-800">Genereer Actielijst</span></button>
                 </div>
               </div>
 
@@ -820,18 +883,26 @@ function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {activeProject.photos.map((ph) => (
                       <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
-                        <div className="relative aspect-video bg-black flex items-center justify-center">
-                          {/* Automatisch detecteren of het een video is */}
+                        
+                        {/* --- AANGEPAST: KLIKKEN OP FOTO VOOR LIGHTBOX --- */}
+                        <div className="relative aspect-video bg-black flex items-center justify-center cursor-pointer group" onClick={() => window.location.hash = `project/${activeProject.id}/media/${ph.id}`}>
                           {ph.url.startsWith("data:video") || ph.name?.endsWith(".mp4") || ph.name?.endsWith(".webm") ? (
-                             <video src={ph.url} controls className="w-full h-full object-contain" />
+                             <video src={ph.url} className="w-full h-full object-contain" />
                           ) : (
-                             <img src={ph.url} className="w-full h-full object-cover" alt="Werf media" />
+                             <img src={ph.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" alt="Werf media" />
                           )}
+                          
+                          {/* Hover Overlay Icon */}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center pointer-events-none">
+                              <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size={32} />
+                          </div>
+
                           <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm z-10" title="Verwijder media"><Trash2 size={16} /></button>
                         </div>
+
                         <div className="p-4 space-y-3">
                           {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
-                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id] || ph.url.startsWith("data:video")} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} {ph.url.startsWith("data:video") ? "Video Analyse Niet Ondersteund" : "Analyseer Foto (AI)"}</button>
+                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id] || ph.url.startsWith("data:video")} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50 transition-colors">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} {ph.url.startsWith("data:video") ? "Video Analyse Niet Ondersteund" : "Analyseer Foto (AI)"}</button>
                           )}
                         </div>
                       </div>
@@ -855,7 +926,7 @@ function App() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
+              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project</h3>
               <button type="button" onClick={closeOverlay} className="hover:bg-slate-200 p-1 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleAddProject} className="p-6 space-y-5">
@@ -879,9 +950,7 @@ function App() {
                     <option value="2 dagen">2 dagen</option>
                     <option value="3 dagen">3 dagen</option>
                   </select>
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                    ▼
-                  </div>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">▼</div>
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
@@ -946,6 +1015,34 @@ function App() {
         </div>
       )}
 
+      {/* --- NIEUW: LIGHTBOX VOOR FULLSCREEN MEDIA --- */}
+      {fullScreenMedia && (
+        <div className="fixed inset-0 bg-black z-[120] flex flex-col animate-in fade-in duration-200">
+          <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/80 to-transparent text-white absolute top-0 w-full z-10">
+            <div className="text-xs font-bold opacity-80">{fullScreenMedia.timestamp}</div>
+            <div className="flex gap-2">
+                <button onClick={() => handleDeletePhoto(fullScreenMedia.id)} className="p-2 bg-black/50 rounded-full hover:bg-rose-600 transition-colors"><Trash2 size={20} /></button>
+                <button onClick={closeOverlay} className="p-2 bg-black/50 rounded-full hover:bg-white/20 transition-colors"><X size={20} /></button>
+            </div>
+          </div>
+          <div className="flex-1 w-full h-full flex items-center justify-center overflow-hidden" onClick={closeOverlay}>
+            {fullScreenMedia.url.startsWith("data:video") || fullScreenMedia.name?.endsWith(".mp4") || fullScreenMedia.name?.endsWith(".webm") ? (
+               <video src={fullScreenMedia.url} controls autoPlay className="max-w-full max-h-full" onClick={(e) => e.stopPropagation()} />
+            ) : (
+               <img src={fullScreenMedia.url} className="max-w-full max-h-full object-contain transition-transform" alt="Vergrote Media" onClick={(e) => e.stopPropagation()} />
+            )}
+          </div>
+          {fullScreenMedia.aiCaption && (
+              <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-black/90 via-black/70 to-transparent">
+                  <div className="text-white text-sm font-medium leading-relaxed flex gap-3 items-start max-w-3xl mx-auto">
+                      <Sparkles size={18} className="shrink-0 text-blue-400 mt-0.5" />
+                      <p>{fullScreenMedia.aiCaption}</p>
+                  </div>
+              </div>
+          )}
+        </div>
+      )}
+
       {/* MODAL VOOR AI RAPPORTEN EN E-MAILS */}
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
@@ -956,7 +1053,7 @@ function App() {
                 <div className="space-y-4">
                   <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
                   <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={closeOverlay} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
+                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { triggerVibration(); navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={closeOverlay} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
                 </div>
               )}
             </div>
@@ -981,16 +1078,16 @@ function App() {
               ))}
               {isChatLoading && <div className="bg-white border border-slate-200 p-3 rounded-2xl self-start rounded-tl-none flex items-center gap-2 text-xs font-bold text-slate-400 shadow-sm"><Loader2 className="animate-spin" size={14} /> AI denkt na...</div>}
             </div>
-            {chatImage && <div className="p-2 bg-slate-200 flex gap-2 shrink-0"><div className="relative w-12 h-12"><img src={chatImage} className="w-full h-full object-cover rounded" alt="Chat preview" /><button onClick={() => setChatImage(null)} className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"><X size={10} /></button></div></div>}
+            {chatImage && <div className="p-2 bg-slate-200 flex gap-2 shrink-0"><div className="relative w-12 h-12"><img src={chatImage} className="w-full h-full object-cover rounded" alt="Chat preview" /><button onClick={() => { triggerVibration(); setChatImage(null); }} className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full p-0.5"><X size={10} /></button></div></div>}
             <div className="p-3 bg-white border-t border-slate-100 flex items-center gap-2 shrink-0">
               <button onClick={() => chatFileInputRef.current?.click()} className="p-2 text-slate-400 hover:text-blue-600 transition-colors shrink-0"><Paperclip size={20} /></button>
               <input type="text" className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Stel een technische vraag..." value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSendMessage()} />
-              <button onClick={handleSendMessage} className="bg-blue-600 text-white p-3 rounded-xl shrink-0 shadow-md hover:bg-blue-700 transition-colors"><Send size={18} /></button>
+              <button onClick={() => { triggerVibration(); handleSendMessage(); }} className="bg-blue-600 text-white p-3 rounded-xl shrink-0 shadow-md hover:bg-blue-700 transition-colors"><Send size={18} /></button>
             </div>
             <input type="file" ref={chatFileInputRef} className="hidden" accept="image/*" onChange={handleChatImageUpload} />
           </div>
         )}
-        <button onClick={() => window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
+        <button onClick={() => { triggerVibration(); window.location.hash = activeProject ? `project/${activeProject.id}/chat` : "chat"; }} className={`fixed sm:static bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all shadow-blue-500/20 pointer-events-auto print:hidden ${isChatOpen ? 'hidden sm:block' : 'block'}`}>
           <MessageSquare size={24} />
         </button>
       </div>
