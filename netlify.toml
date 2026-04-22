@@ -1,0 +1,7 @@
+[functions]
+  node_bundler = "esbuild"
+  region = "us-east-1"
+
+[build]
+  command = "npm run build"
+  publish = "build"
