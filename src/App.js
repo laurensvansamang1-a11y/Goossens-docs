@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Hoge Kwaliteit Compressie (2400px) behouden voor de opslag
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -120,7 +119,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -173,9 +171,12 @@ function App() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
+  // Status en Refs voor de camera en video functionaliteit
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
 
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -192,7 +193,6 @@ function App() {
     window.print();
   };
 
-  // --- SLIMME APP NAVIGATIE ---
   const closeOverlay = () => {
     if (window.history.length > 1) {
       window.history.back(); 
@@ -299,7 +299,7 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- GECORRIGEERDE CAMERA MODULE (Voorkomt het zwarte scherm) ---
+  // --- CAMERA MODULE ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -307,9 +307,7 @@ function App() {
     if (isCameraOpen) {
       navigator.mediaDevices.getUserMedia({
         video: {
-          // 'ideal' zorgt dat hij de achterkant pakt, maar niet crasht als deze ontbreekt
           facingMode: { ideal: "environment" },
-          // Veilige stabiele HD-resolutie om hardware crashes (zwart scherm) te voorkomen
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         }
@@ -322,9 +320,8 @@ function App() {
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          // Zorgt ervoor dat iOS de video direct toestaat af te spelen
           videoRef.current.setAttribute("playsinline", true);
-          videoRef.current.play().catch(e => console.log("Video afspelen vereist interactie", e));
+          videoRef.current.play().catch(e => console.log("Video play vereist interactie", e));
         }
       }).catch(err => {
         showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
@@ -334,6 +331,9 @@ function App() {
 
     return () => {
       isMounted = false;
+      if (isRecording && mediaRecorderRef.current) {
+         mediaRecorderRef.current.stop();
+      }
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
       } else if (streamRef.current) {
@@ -344,7 +344,7 @@ function App() {
   }, [isCameraOpen]);
 
   const takeFastPhoto = () => {
-    if (!videoRef.current || !activeProject) return;
+    if (!videoRef.current || !activeProject || isRecording) return;
     
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
@@ -359,7 +359,6 @@ function App() {
 
     const base64Url = canvas.toDataURL("image/jpeg", 1.0);
 
-    // Ondanks Full HD scherm, behouden we hier de 2400px compressie voor scherpe opslag
     compressImage(base64Url, 2400, 0.95).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
       setProjects(prevProjects => {
@@ -370,11 +369,64 @@ function App() {
     });
   };
 
+  // --- NIEUW: VIDEO OPNEMEN ---
+  const startRecording = () => {
+    if (!streamRef.current || !activeProject) return;
+
+    let mimeType = 'video/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/mp4'; 
+    }
+
+    try {
+      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          const base64Url = reader.result;
+          const newVideo = { 
+              id: Date.now().toString() + Math.random(), 
+              url: base64Url, 
+              timestamp: new Date().toLocaleString("nl-BE"), 
+              name: `Video-${Date.now().toString().slice(-4)}.mp4`, 
+              syncStatus: isOnline ? "synced" : "pending" 
+          };
+          setProjects(prevProjects => {
+            const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newVideo, ...p.photos] } : p);
+            saveToDB(updated); return updated;
+          });
+          showNotification("🎥 Video opgeslagen!", "success");
+        };
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      showNotification("Video opnemen wordt niet ondersteund op dit toestel.", "error");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
   const handleMultipleUpload = async (event) => {
     const files = Array.from(event.target.files);
     if (!files.length || !activeProject) return;
 
-    showNotification(`Bezig met verwerken van ${files.length} foto('s)...`, "success");
+    showNotification(`Bezig met verwerken van ${files.length} bestand(en)...`, "success");
     let newPhotos = [];
     for (let file of files) {
       const reader = new FileReader();
@@ -382,8 +434,14 @@ function App() {
         reader.onloadend = () => resolve(reader.result);
         reader.readAsDataURL(file);
       });
-      const compressedBase64 = await compressImage(base64Url, 2400, 0.95);
-      newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
+      
+      // Als het een foto is, comprimeer het. Als het een video is, sla de base64 direct op.
+      if (file.type.startsWith("image/")) {
+          const compressedBase64 = await compressImage(base64Url, 2400, 0.95);
+          newPhotos.push({ id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
+      } else {
+          newPhotos.push({ id: Date.now().toString() + Math.random(), url: base64Url, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" });
+      }
     }
 
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [...newPhotos, ...p.photos] } : p);
@@ -431,9 +489,9 @@ function App() {
   };
 
   const handleDeletePhoto = async (photoId) => {
-    if (!window.confirm("Weet je zeker dat je deze foto wilt verwijderen?")) return;
+    if (!window.confirm("Weet je zeker dat je dit wilt verwijderen?")) return;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
-    await saveToDB(updated); setProjects(updated); showNotification("🗑️ Foto verwijderd.", "success");
+    await saveToDB(updated); setProjects(updated); showNotification("🗑️ Bestand verwijderd.", "success");
   };
 
   const handleConfirmDeleteProject = async () => {
@@ -614,7 +672,6 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
-
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -650,7 +707,7 @@ function App() {
                     </div>
                   </div>
                   <div className="bg-blue-50 px-4 py-2 sm:py-3 rounded-lg text-blue-600 font-bold flex items-center justify-center gap-2 text-sm sm:text-base w-full sm:w-auto shrink-0">
-                    <ImageIcon size={18} /> {p.photos?.length || 0} foto's
+                    <ImageIcon size={18} /> {p.photos?.length || 0} media
                   </div>
                 </div>
               )) : (
@@ -686,7 +743,7 @@ function App() {
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                <button onClick={() => window.location.hash = `project/${activeProject.id}/camera`} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto Nemen (Snel)</span></button>
+                <button onClick={() => window.location.hash = `project/${activeProject.id}/camera`} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto / Video (Snel)</span></button>
                 <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
               </div>
 
@@ -697,7 +754,6 @@ function App() {
                   <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                 </div>
 
-                {/* Rode melding als er service nodig is */}
                 {activeProject.status === "Service nodig" && (
                   <div className="mb-6 p-5 bg-red-100 rounded-2xl border-2 border-red-500 shadow-md animate-in fade-in print:bg-transparent print:border-none print:p-0">
                     <label className="block text-sm font-bold text-red-900 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
@@ -757,19 +813,25 @@ function App() {
                 </div>
               </div>
 
+              {/* MEDIA WEERGAVE (FOTO EN VIDEO) */}
               <div className="space-y-4 print:hidden">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Foto Documentatie ({activeProject.photos.length})</p>
-                {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen foto's in deze map.</div> : (
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Media Documentatie ({activeProject.photos.length})</p>
+                {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen media in deze map.</div> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {activeProject.photos.map((ph) => (
                       <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
-                        <div className="relative aspect-video">
-                          <img src={ph.url} className="w-full h-full object-cover" alt="Werffoto" />
-                          <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm" title="Verwijder foto"><Trash2 size={16} /></button>
+                        <div className="relative aspect-video bg-black flex items-center justify-center">
+                          {/* Automatisch detecteren of het een video is */}
+                          {ph.url.startsWith("data:video") || ph.name?.endsWith(".mp4") || ph.name?.endsWith(".webm") ? (
+                             <video src={ph.url} controls className="w-full h-full object-contain" />
+                          ) : (
+                             <img src={ph.url} className="w-full h-full object-cover" alt="Werf media" />
+                          )}
+                          <button onClick={(e) => { e.stopPropagation(); handleDeletePhoto(ph.id); }} className="absolute top-2 left-2 bg-rose-500/90 text-white p-2 rounded-xl shadow-lg hover:bg-rose-600 transition-colors backdrop-blur-sm z-10" title="Verwijder media"><Trash2 size={16} /></button>
                         </div>
                         <div className="p-4 space-y-3">
                           {ph.aiCaption ? <div className="bg-purple-50 p-3 rounded-xl text-xs text-purple-700 font-medium leading-relaxed border border-purple-100 flex gap-2"><Sparkles size={12} className="shrink-0 text-purple-400" /> {ph.aiCaption}</div> : (
-                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id]} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} Analyseer Foto (AI)</button>
+                            <button onClick={() => handleAnalyzePhoto(ph.id, ph.url)} disabled={analyzingPhotos[ph.id] || ph.url.startsWith("data:video")} className="w-full py-2 rounded-lg bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-50">{analyzingPhotos[ph.id] ? <Loader2 className="animate-spin inline mr-2" size={12} /> : <Sparkles size={12} className="inline mr-2" />} {ph.url.startsWith("data:video") ? "Video Analyse Niet Ondersteund" : "Analyseer Foto (AI)"}</button>
                           )}
                         </div>
                       </div>
@@ -854,20 +916,32 @@ function App() {
         </div>
       )}
 
-      {/* --- CAMERA VOLLEDIG SCHERM --- */}
+      {/* --- CAMERA VOLLEDIG SCHERM (MET FOTO EN VIDEO KNOP) --- */}
       {isCameraOpen && (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
-            <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
+            <span className="font-bold tracking-widest uppercase text-sm">
+               {isRecording ? <span className="text-rose-500 animate-pulse flex items-center gap-2"><Square size={12} fill="currentColor"/> OPNEMEN...</span> : "Foto / Video Camera"}
+            </span>
             <button onClick={closeOverlay} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
           <div className="flex-1 relative bg-black overflow-hidden">
              <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
           </div>
-          <div className="h-32 bg-black flex items-center justify-center pb-8 shrink-0 z-10">
-             <button onClick={takeFastPhoto} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+          <div className="h-32 bg-black flex items-center justify-center gap-8 pb-8 shrink-0 z-10">
+             <button onClick={takeFastPhoto} disabled={isRecording} className={`w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center ${isRecording ? 'opacity-50' : ''}`}>
                 <Camera size={32} className="text-slate-800" />
              </button>
+             
+             {!isRecording ? (
+                 <button onClick={startRecording} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-rose-100 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+                    <Video size={32} className="text-rose-600" />
+                 </button>
+             ) : (
+                 <button onClick={stopRecording} className="w-20 h-20 bg-rose-600 rounded-full border-4 border-rose-300 animate-pulse transition-all shadow-lg flex items-center justify-center">
+                    <Square size={28} className="text-white" fill="currentColor" />
+                 </button>
+             )}
           </div>
         </div>
       )}
