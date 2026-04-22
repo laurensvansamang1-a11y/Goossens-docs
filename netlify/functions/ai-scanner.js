@@ -11,29 +11,33 @@ exports.handler = async (event) => {
       throw new Error("API Key ontbreekt in Netlify instellingen.");
     }
 
+    // Initialiseer de nieuwste versie van de AI
     const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // We gebruiken hier 'gemini-1.5-flash', dit is de snelste versie voor jouw app
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const { promptText, mimeType, base64Data } = JSON.parse(event.body);
 
     let result;
     if (base64Data && mimeType) {
+      // Voor foto-analyse (Multimodaal)
       result = await model.generateContent([
         promptText,
         { inlineData: { data: base64Data, mimeType } }
       ]);
     } else {
+      // Voor gewone tekst chat
       result = await model.generateContent(promptText);
     }
 
-    const response = await result.response;
-    const text = response.text();
+    // Nieuwe manier van uitlezen voor versie 0.21.0+
+    const text = result.response.text();
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*" 
+      },
       body: JSON.stringify({ result: text }),
     };
 
