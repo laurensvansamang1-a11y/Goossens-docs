@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -109,7 +108,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
 
   return (
     <div className="space-y-3 print:hidden">
-      {/* Groter handtekening vak (h-[200px] of h-[250px] op grotere schermen) en hogere resolutie (800x400) */}
       <div className="border-2 border-slate-300 rounded-2xl overflow-hidden bg-white touch-none shadow-inner">
         <canvas ref={canvasRef} width={800} height={400} className="w-full h-[200px] sm:h-[250px] bg-slate-50 cursor-crosshair touch-none" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />
       </div>
@@ -121,7 +119,6 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   );
 };
 
-// --- VEILIGE KOPPELING NAAR NETLIFY BACKEND ---
 const executeAI = async (promptText, mimeType = null, base64Data = null, forceJson = false) => {
   const url = "/.netlify/functions/ai-scanner";
 
@@ -170,7 +167,6 @@ function App() {
   const [isTranslating, setIsTranslating] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
-  // Default staat nu op "1 dag" vanwege het dropdown menu
   const [newProjectData, setNewProjectData] = useState({ name: "", id: "", date: "", duration: "1 dag" });
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [isMagicLoading, setIsMagicLoading] = useState(false);
@@ -194,7 +190,15 @@ function App() {
     window.print();
   };
 
-  // Navigatie & Fysieke Terug-knop logica
+  // --- SLIMME APP NAVIGATIE: Voorkomt het vastlopen van de Terug-knop op je gsm ---
+  const closeOverlay = () => {
+    if (window.history.length > 1) {
+      window.history.back(); // Wis het venster uit de geschiedenis
+    } else {
+      window.location.replace("#"); // Forceer startscherm als er geen geschiedenis is
+    }
+  };
+
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -226,7 +230,6 @@ function App() {
         setIsChatOpen(true);
         setActiveView("list");
       } else {
-        // Zorg dat we schoon terugkeren naar de lijst, geen gedwongen state-pushes die de app openhouden
         setActiveView("list");
         setSelectedProjectId(null);
       }
@@ -237,16 +240,14 @@ function App() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
 
-  const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
-  
-  const handleBackToList = () => {
-    // Navigeer terug, maar als er geen geschiedenis is, laat het leeg zodat de browser kan afsluiten
-    if (window.history.length > 1) {
-        window.history.back();
-    } else {
-        window.location.hash = "";
+  // Extra veiligheid: Als een project verwijderd is, maar je gaat "terug" naar het verwijderde dossier, stuur hem naar het hoofdscherm
+  useEffect(() => {
+    if (isInitialized && activeView === "detail" && selectedProjectId && !activeProject) {
+      window.location.replace("#");
     }
-  };
+  }, [isInitialized, activeView, selectedProjectId, activeProject]);
+
+  const handleProjectClick = (id) => { window.location.hash = `project/${id}`; };
 
   useEffect(() => {
     const initData = async () => {
@@ -289,45 +290,37 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE ---
-  useEffect(() => {
-    let isMounted = true;
-    let localStream = null;
-
-    if (isCameraOpen) {
-      navigator.mediaDevices.getUserMedia({
+  const startCamera = async () => {
+    try {
+      const constraints = {
         video: {
           facingMode: "environment",
           width: { ideal: 4096 },
           height: { ideal: 2160 }
         }
-      }).then(stream => {
-        if (!isMounted) {
-          stream.getTracks().forEach(track => track.stop());
-          return;
-        }
-        localStream = stream;
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }).catch(err => {
-        showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
-        window.history.back(); 
-      });
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      setIsCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); } }, 100);
+    } catch (err) {
+      showNotification("Geen toegang tot camera. Controleer browser instellingen.", "error");
+      closeOverlay(); 
     }
+  };
 
-    return () => {
-      isMounted = false;
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      } else if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-    };
-  }, [isCameraOpen]);
+  const stopCamera = () => {
+    setIsCameraOpen(false);
+    if (streamRef.current) { 
+      streamRef.current.getTracks().forEach(track => track.stop()); 
+      streamRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop()); }
+  }, []);
 
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject) return;
@@ -400,7 +393,6 @@ function App() {
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, status: newStatus, signature } : p);
     await saveToDB(updated); setProjects(updated); 
     
-    // Rode melding als service nodig is
     showNotification(`Status gewijzigd naar: ${newStatus}`, newStatus === "Service nodig" ? "error" : "success");
   };
 
@@ -428,13 +420,12 @@ function App() {
     await saveToDB(updated);
     setProjects(updated);
     setProjectToDelete(null);
-    window.location.hash = ""; 
+    window.location.replace("#"); // Forceert het scherm naar het menu na wissen
     showNotification("🗑️ Dossier definitief verwijderd.", "success");
   };
 
   const handleAddProject = async (e) => {
     e.preventDefault();
-    // Controleer nu ook of het dossiernummer is ingevuld
     if (!newProjectData.name || !newProjectData.date || !newProjectData.id) {
         return showNotification("Vul alle verplichte velden in.", "error");
     }
@@ -450,7 +441,7 @@ function App() {
     await saveToDB(updated); 
     setProjects(updated);
     setNewProjectData({ name: "", id: "", date: "", duration: "1 dag" });
-    window.location.hash = ""; 
+    closeOverlay(); 
     showNotification("✨ Projectmap aangemaakt!", "success");
   };
 
@@ -524,7 +515,7 @@ function App() {
       const text = await executeAI(promptText);
       setGeneratedReport(text); setReportStatus("success");
     } catch (error) { 
-      setReportConfig({ ...reportConfig, isOpen: false }); window.history.back(); showNotification(`AI Fout: ${error.message}`, "error");
+      setReportConfig({ ...reportConfig, isOpen: false }); closeOverlay(); showNotification(`AI Fout: ${error.message}`, "error");
     }
   };
 
@@ -649,7 +640,7 @@ function App() {
         ) : activeProject ? (
           <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
             <div className="flex justify-between items-center print:hidden">
-              <button onClick={handleBackToList} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
+              <button onClick={closeOverlay} className="flex items-center gap-2 text-slate-700 font-bold text-lg hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-xl transition-all shadow-sm border border-slate-200 bg-white">
                 <ChevronLeft size={24} /> Terug
               </button>
               <button onClick={handlePrintPDF} className="flex items-center gap-2 bg-slate-800 text-white font-bold text-sm hover:bg-slate-700 px-4 py-2 rounded-xl transition-all shadow-md">
@@ -683,7 +674,6 @@ function App() {
                   <button onClick={() => handleUpdateStatus("Service nodig")} className={`flex-1 flex items-center justify-center gap-2 py-3 sm:py-4 px-2 rounded-xl border-2 font-bold transition-all text-sm sm:text-base ${activeProject.status === "Service nodig" ? "bg-rose-50 border-rose-500 text-rose-700 shadow-sm" : "bg-white border-slate-200 text-slate-600 hover:border-rose-300 hover:bg-rose-50"}`}><AlertTriangle size={20} className="shrink-0" /><span>Service Nodig</span></button>
                 </div>
 
-                {/* Rode melding als er service nodig is */}
                 {activeProject.status === "Service nodig" && (
                   <div className="mb-6 p-5 bg-red-100 rounded-2xl border-2 border-red-500 shadow-md animate-in fade-in print:bg-transparent print:border-none print:p-0">
                     <label className="block text-sm font-bold text-red-900 mb-2 flex items-center gap-2"><Clock size={16} /> Geschatte Resterende Werkuren (Service)</label>
@@ -769,19 +759,18 @@ function App() {
           <div className="py-32 text-center space-y-4 animate-in fade-in print:hidden">
              <Loader2 className="animate-spin mx-auto text-slate-400" size={40} />
              <p className="text-slate-500 font-medium">Map laden...</p>
-             <button onClick={() => window.location.hash = ""} className="mt-4 px-6 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-300 transition-colors shadow-sm">Terug naar overzicht</button>
+             <button onClick={closeOverlay} className="mt-4 px-6 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-sm hover:bg-slate-300 transition-colors shadow-sm">Terug naar overzicht</button>
           </div>
         )}
       </main>
 
-      {/* --- ADD PROJECT MODAL (AANGEPAST MET MODERNE KALENDER EN DROPDOWN) --- */}
+      {/* --- ADD PROJECT MODAL --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              {/* Tekst 'Nieuw Project Aanmaken' groter gemaakt */}
               <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
-              <button type="button" onClick={() => window.location.hash = ""} className="hover:bg-slate-200 p-1 rounded-full transition-colors"><X size={24} /></button>
+              <button type="button" onClick={closeOverlay} className="hover:bg-slate-200 p-1 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleAddProject} className="p-6 space-y-5">
               <div>
@@ -794,7 +783,6 @@ function App() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Startdatum *</label>
-                {/* Moderne strakke kalender input */}
                 <input type="date" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
               </div>
               <div>
@@ -811,7 +799,7 @@ function App() {
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
-                <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-4 font-bold text-slate-500 text-sm bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">Annuleren</button>
+                <button type="button" onClick={closeOverlay} className="flex-1 py-4 font-bold text-slate-500 text-sm bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">Annuleren</button>
                 <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-xl font-bold text-sm shadow-lg hover:bg-blue-700 transition-colors">Aanmaken</button>
               </div>
             </form>
@@ -825,7 +813,7 @@ function App() {
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
               <h3 className="font-black uppercase tracking-widest text-[10px] flex items-center gap-2 text-rose-600"><AlertTriangle size={14}/> Dossier Verwijderen</h3>
-              <button type="button" onClick={() => window.location.hash = ""}><X size={20} /></button>
+              <button type="button" onClick={closeOverlay}><X size={20} /></button>
             </div>
             <div className="p-8 text-center space-y-4">
               <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -835,7 +823,7 @@ function App() {
               <p className="text-slate-500 text-sm">Dit verwijdert alle foto's, notities en handtekeningen. Dit kan niet ongedaan worden gemaakt.</p>
             </div>
             <div className="p-6 bg-slate-50 flex gap-3">
-              <button type="button" onClick={() => window.location.hash = ""} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
+              <button type="button" onClick={closeOverlay} className="flex-1 py-3 font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl text-sm transition-colors">Annuleren</button>
               <button type="button" onClick={handleConfirmDeleteProject} className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-sm shadow-lg transition-colors">Ja, verwijderen</button>
             </div>
           </div>
@@ -847,7 +835,7 @@ function App() {
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
             <span className="font-bold tracking-widest uppercase text-sm">Snelvuur Camera</span>
-            <button onClick={() => window.history.back()} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
+            <button onClick={closeOverlay} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
           <div className="flex-1 relative bg-black overflow-hidden">
              <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
@@ -864,13 +852,13 @@ function App() {
       {reportConfig.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50"><h3 className="font-black text-slate-800 uppercase tracking-widest flex items-center gap-2 text-xs sm:text-sm"><Sparkles className="text-blue-500" size={18} /> {reportConfig.title}</h3><button onClick={closeOverlay} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button></div>
             <div className="p-6 overflow-y-auto flex-1 bg-white">
               {reportStatus === "loading" ? <div className="py-20 text-center space-y-4"><Loader2 className="animate-spin mx-auto text-blue-600" size={40} /><p className="font-bold text-slate-400 uppercase tracking-widest text-[10px]">AI stelt document op...</p></div> : (
                 <div className="space-y-4">
                   <textarea className="w-full min-h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-2xl font-sans text-slate-700 text-sm leading-relaxed outline-none" value={generatedReport} onChange={(e) => setGeneratedReport(e.target.value)} />
                   <div className="flex flex-wrap gap-2 pt-2"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-full mb-1">Vertalen:</span><button onClick={() => handleTranslateReport("Frans")} disabled={isTranslating} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 disabled:opacity-50">🇫🇷 Frans</button><button onClick={() => handleTranslateReport("Engels")} disabled={isTranslating} className="bg-rose-50 text-rose-700 px-4 py-2 rounded-xl text-xs font-bold hover:bg-rose-100 disabled:opacity-50">🇬🇧 Engels</button></div>
-                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={() => setReportConfig({ ...reportConfig, isOpen: false })} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
+                  <div className="flex justify-end gap-3 pt-4"><button onClick={() => { navigator.clipboard.writeText(generatedReport); showNotification("Gekopieerd naar klembord!", "success"); }} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 text-xs">Kopieer</button><button onClick={closeOverlay} className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold shadow-lg text-xs">Sluiten</button></div>
                 </div>
               )}
             </div>
@@ -884,7 +872,7 @@ function App() {
           <div className="bg-white fixed inset-0 sm:static w-full h-full sm:w-96 sm:h-[600px] sm:rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col sm:mb-4 animate-in slide-in-from-bottom-4 pointer-events-auto z-[70]">
             <div className="bg-slate-900 p-4 flex justify-between items-center text-white shrink-0">
               <div className="flex items-center gap-2"><Sparkles className="text-blue-400" size={18} /><span className="font-bold tracking-tight">Montage Assistent</span></div>
-              <button onClick={() => window.location.hash = ""} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={closeOverlay} className="p-2 hover:bg-slate-800 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {chatMessages.map((m, i) => (
