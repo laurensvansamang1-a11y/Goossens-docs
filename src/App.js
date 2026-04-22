@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2 } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -54,10 +53,8 @@ const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   });
 };
 
-// --- NIEUW: HAPTISCHE FEEDBACK ---
 const triggerVibration = (pattern = 50) => {
   if (navigator.vibrate) {
-    // pattern kan een enkel getal (50ms) zijn of een array ([50, 100, 50])
     navigator.vibrate(pattern);
   }
 };
@@ -109,7 +106,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   const stopDrawing = () => { if (isDrawing) setIsDrawing(false); };
   
   const clearSignature = () => {
-    triggerVibration(); // Feedback bij wissen
+    triggerVibration(); 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -118,7 +115,7 @@ const SignaturePad = ({ onSave, onClear, initialSignature }) => {
   
   const confirmSignature = () => { 
       if (hasDrawn) {
-          triggerVibration([50, 50, 50]); // Duidelijke feedback bij succes
+          triggerVibration([50, 50, 50]); 
           onSave(canvasRef.current.toDataURL("image/png")); 
       }
   };
@@ -190,8 +187,6 @@ function App() {
 
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  
-  // --- NIEUW: LIGHTBOX STATE ---
   const [fullScreenMedia, setFullScreenMedia] = useState(null);
 
   const videoRef = useRef(null);
@@ -199,8 +194,6 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
-  
-  // --- NIEUW: AUTO-SAVE TIMER REF ---
   const saveTimeoutRef = useRef(null);
 
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
@@ -216,7 +209,7 @@ function App() {
   };
 
   const closeOverlay = () => {
-    triggerVibration(); // Lichte tik bij sluiten
+    triggerVibration(); 
     if (window.history.length > 1) {
       window.history.back(); 
     } else {
@@ -233,7 +226,7 @@ function App() {
       setProjectToDelete(null);
       setIsChatOpen(false);
       setReportConfig(prev => ({ ...prev, isOpen: false }));
-      setFullScreenMedia(null); // Sluit ook de lightbox af bij navigatie
+      setFullScreenMedia(null); 
 
       if (hash.startsWith("#project/")) {
         const parts = hash.split("/");
@@ -329,7 +322,6 @@ function App() {
   }, [projects, searchQuery]);
 
   const showNotification = (message, type = "success") => {
-    // Trilling toevoegen aan notificaties. Fout = zwaar, Succes = licht
     if(type === 'error') triggerVibration([100, 50, 100]);
     else triggerVibration([50]);
     
@@ -382,7 +374,7 @@ function App() {
   const takeFastPhoto = () => {
     if (!videoRef.current || !activeProject || isRecording) return;
     
-    triggerVibration(50); // Foto 'klik' voelbaar
+    triggerVibration(50); 
     
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
@@ -410,7 +402,7 @@ function App() {
   const startRecording = () => {
     if (!streamRef.current || !activeProject) return;
 
-    triggerVibration([50, 50]); // Twee snelle tikjes voor starten video
+    triggerVibration([50, 50]); 
 
     let mimeType = 'video/webm';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -456,7 +448,7 @@ function App() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      triggerVibration([100]); // Iets langere tik bij stoppen
+      triggerVibration([100]); 
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -507,17 +499,11 @@ function App() {
     try { recognition.start(); } catch (err) { setIsListening(false); showNotification("Starten mislukt.", "error"); }
   };
 
-  // --- NIEUW: AUTO-SAVE LOGICA VOOR NOTITIES ---
   const handleNotesChange = (e) => {
     const val = e.target.value;
-    
-    // Direct de UI updaten zodat typen vloeiend blijft
     setProjects((prev) => prev.map((p) => String(p.id) === String(activeProject.id) ? { ...p, notes: val } : p));
     
-    // Wis eventuele oude timers
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    
-    // Zet een nieuwe timer: 1 seconde na de LAATSTE toetsaanslag, slaat hij op in de DB
     saveTimeoutRef.current = setTimeout(() => {
         saveToDB(projectsRef.current);
     }, 1000);
@@ -549,7 +535,6 @@ function App() {
     if (!window.confirm("Weet je zeker dat je dit wilt verwijderen?")) return;
     const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: p.photos.filter((photo) => photo.id !== photoId) } : p);
     await saveToDB(updated); setProjects(updated); showNotification("🗑️ Bestand verwijderd.", "success");
-    // Zorg dat de lightbox ook sluit als we iets deleten terwijl het open is
     if (fullScreenMedia && fullScreenMedia.id === photoId) closeOverlay();
   };
 
@@ -733,7 +718,6 @@ function App() {
             {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
             <span className="hidden sm:inline">{isOnline ? "ONLINE" : "OFFLINE"}</span>
           </div>
-
           <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center font-bold text-blue-400 border border-slate-600">G</div>
         </div>
         <input type="file" ref={magicUploadRef} className="hidden" accept="image/*,application/pdf" onChange={handleMagicUpload} />
@@ -856,7 +840,6 @@ function App() {
                     </button>
                   </div>
                   
-                  {/* --- AANGEPAST: AUTO-SAVE OP HET TEKSTVAK --- */}
                   <textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none min-h-[180px] text-sm font-medium leading-relaxed print:hidden" placeholder="Typ of dicteer hier de werfnotities of servicepunten..." value={activeProject.notes} onChange={handleNotesChange} />
                   
                   <div className="hidden print:block text-sm text-slate-700 whitespace-pre-wrap leading-relaxed border border-slate-200 p-4 rounded-xl">
@@ -885,14 +868,13 @@ function App() {
                       <div key={ph.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-200 flex flex-col shadow-sm">
                         
                         {/* --- AANGEPAST: KLIKKEN OP FOTO VOOR LIGHTBOX --- */}
-                        <div className="relative aspect-video bg-black flex items-center justify-center cursor-pointer group" onClick={() => window.location.hash = `project/${activeProject.id}/media/${ph.id}`}>
+                        <div className="relative aspect-video bg-black flex items-center justify-center cursor-pointer group" onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/media/${ph.id}`; }}>
                           {ph.url.startsWith("data:video") || ph.name?.endsWith(".mp4") || ph.name?.endsWith(".webm") ? (
-                             <video src={ph.url} className="w-full h-full object-contain" />
+                             <video src={ph.url} className="w-full h-full object-contain pointer-events-none" />
                           ) : (
-                             <img src={ph.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" alt="Werf media" />
+                             <img src={ph.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 pointer-events-none" alt="Werf media" />
                           )}
                           
-                          {/* Hover Overlay Icon */}
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center pointer-events-none">
                               <Maximize2 className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" size={32} />
                           </div>
@@ -921,31 +903,45 @@ function App() {
         )}
       </main>
 
-      {/* --- ADD PROJECT MODAL --- */}
+      {/* --- ADD PROJECT MODAL MET AANGEPASTE KALENDER INPUT --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
             <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project</h3>
+              <h3 className="font-black uppercase tracking-widest text-lg sm:text-xl flex items-center gap-2"><Plus size={20}/> Nieuw Project Aanmaken</h3>
               <button type="button" onClick={closeOverlay} className="hover:bg-slate-200 p-1 rounded-full transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleAddProject} className="p-6 space-y-5">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Klantnaam *</label>
-                <input type="text" required placeholder="Bijv. Peeters" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
+                <input type="text" required placeholder="Bijv. Peeters" className="w-full p-4 bg-white border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-800 font-bold shadow-sm transition-all" value={newProjectData.name} onChange={(e) => setNewProjectData({...newProjectData, name: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Dossiernummer *</label>
-                <input type="text" required placeholder="Bijv. 1234" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-medium transition-all" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
+                <input type="text" required placeholder="Bijv. 1234" className="w-full p-4 bg-white border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-800 font-bold shadow-sm transition-all" value={newProjectData.id} onChange={(e) => setNewProjectData({...newProjectData, id: e.target.value})} />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Startdatum *</label>
-                <input type="date" required className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all" value={newProjectData.date} onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} />
+                
+                {/* --- NIEUW: STIJLVOLLE KALENDER INPUT --- */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Calendar size={20} className="text-blue-500" />
+                  </div>
+                  <input 
+                    type="date" 
+                    required 
+                    className="w-full pl-12 pr-4 py-4 bg-white border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-800 font-bold shadow-sm transition-all appearance-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                    value={newProjectData.date} 
+                    onChange={(e) => setNewProjectData({...newProjectData, date: e.target.value})} 
+                  />
+                </div>
+
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Duur *</label>
                 <div className="relative">
-                  <select className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-700 font-bold transition-all appearance-none" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
+                  <select className="w-full p-4 bg-white border-2 border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 text-slate-800 font-bold shadow-sm transition-all appearance-none cursor-pointer" value={newProjectData.duration} onChange={(e) => setNewProjectData({...newProjectData, duration: e.target.value})}>
                     <option value="1 dag">1 dag</option>
                     <option value="2 dagen">2 dagen</option>
                     <option value="3 dagen">3 dagen</option>
@@ -1018,9 +1014,9 @@ function App() {
       {/* --- NIEUW: LIGHTBOX VOOR FULLSCREEN MEDIA --- */}
       {fullScreenMedia && (
         <div className="fixed inset-0 bg-black z-[120] flex flex-col animate-in fade-in duration-200">
-          <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/80 to-transparent text-white absolute top-0 w-full z-10">
+          <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/80 to-transparent text-white absolute top-0 w-full z-10 pointer-events-none">
             <div className="text-xs font-bold opacity-80">{fullScreenMedia.timestamp}</div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 pointer-events-auto">
                 <button onClick={() => handleDeletePhoto(fullScreenMedia.id)} className="p-2 bg-black/50 rounded-full hover:bg-rose-600 transition-colors"><Trash2 size={20} /></button>
                 <button onClick={closeOverlay} className="p-2 bg-black/50 rounded-full hover:bg-white/20 transition-colors"><X size={20} /></button>
             </div>
@@ -1033,8 +1029,8 @@ function App() {
             )}
           </div>
           {fullScreenMedia.aiCaption && (
-              <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-black/90 via-black/70 to-transparent">
-                  <div className="text-white text-sm font-medium leading-relaxed flex gap-3 items-start max-w-3xl mx-auto">
+              <div className="absolute bottom-0 w-full p-6 bg-gradient-to-t from-black/90 via-black/70 to-transparent pointer-events-none">
+                  <div className="text-white text-sm font-medium leading-relaxed flex gap-3 items-start max-w-3xl mx-auto pointer-events-auto">
                       <Sparkles size={18} className="shrink-0 text-blue-400 mt-0.5" />
                       <p>{fullScreenMedia.aiCaption}</p>
                   </div>
