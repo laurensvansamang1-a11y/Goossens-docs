@@ -35,6 +35,7 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
+// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -328,6 +329,7 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
+  // --- CAMERA MODULE ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -336,8 +338,8 @@ function App() {
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 3840 }, // Vraag 4K of hoogst haalbare
+          height: { ideal: 2160 }
         }
       }).then(stream => {
         if (!isMounted) {
@@ -371,23 +373,45 @@ function App() {
     };
   }, [isCameraOpen]);
 
-  const takeFastPhoto = () => {
+  // --- SLIMME FOTO OPNEMER (PROBEERT ImageCapture API, ANDERS CANVAS) ---
+  const takeFastPhoto = async () => {
     if (!videoRef.current || !activeProject || isRecording) return;
     
     triggerVibration(50); 
     
+    // Flits effect
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    let base64Url = "";
 
-    const base64Url = canvas.toDataURL("image/jpeg", 1.0);
+    try {
+        // Poging 1: Raw Sensor Capture (Perfect voor Android)
+        if (window.ImageCapture && streamRef.current) {
+            const track = streamRef.current.getVideoTracks()[0];
+            const imageCapture = new ImageCapture(track);
+            const photoBlob = await imageCapture.takePhoto();
+            
+            base64Url = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(photoBlob);
+            });
+        } else {
+            throw new Error("ImageCapture not supported");
+        }
+    } catch (err) {
+        // Poging 2: Video Frame Capture (Fallback voor iOS Safari)
+        const video = videoRef.current;
+        const canvas = document.createElement("canvas");
+        // Gebruik de werkelijke stream resolutie
+        canvas.width = video.videoWidth || 1920;
+        canvas.height = video.videoHeight || 1080;
+        
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        base64Url = canvas.toDataURL("image/jpeg", 1.0);
+    }
 
     compressImage(base64Url, 2400, 0.95).then(async (compressedBase64) => {
       const newPhoto = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: `SnelFoto-${Date.now().toString().slice(-4)}.jpg`, syncStatus: isOnline ? "synced" : "pending" };
@@ -395,7 +419,7 @@ function App() {
         const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newPhoto, ...p.photos] } : p);
         saveToDB(updated); return updated;
       });
-      showNotification("📸 Foto opgeslagen!", "success");
+      showNotification("📸 Foto opgeslagen in maximale kwaliteit!", "success");
     });
   };
 
@@ -859,7 +883,7 @@ function App() {
                 </div>
               </div>
 
-              {/* MEDIA WEERGAVE (FOTO EN VIDEO) MET NIEUWE INDICATOR */}
+              {/* MEDIA WEERGAVE (FOTO EN VIDEO) */}
               <div className="space-y-4 print:hidden">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Media Documentatie ({activeProject.photos.length})</p>
                 {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen media in deze map.</div> : (
@@ -1018,7 +1042,7 @@ function App() {
         </div>
       )}
 
-      {/* --- NIEUW: LIGHTBOX VOOR FULLSCREEN MEDIA --- */}
+      {/* --- LIGHTBOX VOOR FULLSCREEN MEDIA --- */}
       {fullScreenMedia && (
         <div className="fixed inset-0 bg-black z-[120] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-gradient-to-b from-black/80 to-transparent text-white absolute top-0 w-full z-10 pointer-events-none">
