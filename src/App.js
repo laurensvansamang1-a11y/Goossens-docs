@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Maximize2, PlayCircle } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2, PlayCircle } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -186,13 +186,14 @@ function App() {
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [fullScreenMedia, setFullScreenMedia] = useState(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
-  const nativeVideoRef = useRef(null); // Ref om direct de native videocamera te openen
   const saveTimeoutRef = useRef(null);
 
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
@@ -327,7 +328,6 @@ function App() {
     setNotification({ message, type }); setTimeout(() => setNotification(null), 5000);
   };
 
-  // --- CAMERA MODULE ---
   useEffect(() => {
     let isMounted = true;
     let localStream = null;
@@ -359,6 +359,9 @@ function App() {
 
     return () => {
       isMounted = false;
+      if (isRecording && mediaRecorderRef.current) {
+         mediaRecorderRef.current.stop();
+      }
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
       } else if (streamRef.current) {
@@ -368,9 +371,8 @@ function App() {
     };
   }, [isCameraOpen]);
 
-  // --- Razendsnelle Foto Capture (Zoals het was) ---
   const takeFastPhoto = () => {
-    if (!videoRef.current || !activeProject) return;
+    if (!videoRef.current || !activeProject || isRecording) return;
     
     triggerVibration(50); 
     
@@ -397,37 +399,59 @@ function App() {
     });
   };
 
-  // --- De Native GSM Camera aanroepen voor Video ---
-  const startNativeVideo = () => {
-    triggerVibration([50, 50]);
-    nativeVideoRef.current?.click(); // Opent GSM camera app
-    closeOverlay(); // Sluit direct de web-camera overlay af
+  const startRecording = () => {
+    if (!streamRef.current || !activeProject) return;
+
+    triggerVibration([50, 50]); 
+
+    let mimeType = 'video/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/mp4'; 
+    }
+
+    try {
+      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType });
+      mediaRecorderRef.current = mediaRecorder;
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          const base64Url = reader.result;
+          const newVideo = { 
+              id: Date.now().toString() + Math.random(), 
+              url: base64Url, 
+              timestamp: new Date().toLocaleString("nl-BE"), 
+              name: `Video-${Date.now().toString().slice(-4)}.mp4`, 
+              syncStatus: isOnline ? "synced" : "pending" 
+          };
+          setProjects(prevProjects => {
+            const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newVideo, ...p.photos] } : p);
+            saveToDB(updated); return updated;
+          });
+          showNotification("🎥 Video opgeslagen!", "success");
+        };
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      showNotification("Video opnemen wordt niet ondersteund op dit toestel.", "error");
+    }
   };
 
-  const handleNativeVideoUpload = async (event) => {
-    const file = event.target.files[0];
-    if (!file || !activeProject) return;
-
-    showNotification(`Video verwerken...`, "success");
-    
-    const reader = new FileReader();
-    const base64Url = await new Promise((resolve) => {
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(file);
-    });
-    
-    const newVideo = { 
-        id: Date.now().toString() + Math.random(), 
-        url: base64Url, 
-        timestamp: new Date().toLocaleString("nl-BE"), 
-        name: `Video-${Date.now().toString().slice(-4)}.mp4`, 
-        syncStatus: isOnline ? "synced" : "pending" 
-    };
-
-    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newVideo, ...p.photos] } : p);
-    await saveToDB(updated); setProjects(updated);
-    event.target.value = null; 
-    showNotification("🎥 Video succesvol opgeslagen!", "success");
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      triggerVibration([100]); 
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
   };
 
   const handleMultipleUpload = async (event) => {
@@ -605,8 +629,10 @@ function App() {
   const handleGenerateReport = async (type) => {
     triggerVibration();
     const title = type === "email" ? "Oplever E-mail (Service)" : "Interne Actielijst (Snag List)";
+    
+    // --- VERNIEUWDE, VEEL SPECIFIEKERE PROMPT VOOR DE SERVICE E-MAIL ---
     const promptText = type === "email" 
-      ? `Schrijf een korte, professionele e-mail naar de klant (${activeProject.name}). De plaatser is klaar, maar er zijn nog servicepunten. Benoem GEEN specifieke punten. Zeg dat kantoor contact opneemt. In het Nederlands.` 
+      ? `Schrijf een uiterst professionele en zeer geruststellende e-mail naar de klant (${activeProject.name}). Doel: De installatie van de keuken is afgerond, maar er is nog 'service nodig' voor de afwerking. Belangrijke regels: 1. Bedank de klant voor het vertrouwen in Goossens. 2. Stel de klant expliciet gerust: benadruk dat de monteur alle benodigde servicepunten nauwkeurig heeft genoteerd en heeft doorgegeven aan onze binnendienst. 3. Beloof een snelle afhandeling: geef aan dat kantoor zo snel mogelijk contact opneemt. 4. Benoem onder GEEN beding specifieke of technische punten in de mail. 5. Houd het kort, warm en zakelijk in vlot Nederlands.` 
       : `Maak een beknopte actielijst voor binnendienst o.b.v. dit logboek: ${activeProject.notes || "Geen"}. Nederlands.`;
     
     setReportStatus("loading"); setReportConfig({ isOpen: true, type, title });
@@ -764,7 +790,6 @@ function App() {
                 </div>
               </div>
               
-              {/* --- 2 KNOPPEN LAYOUT HERSTELD --- */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
                 <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/camera`; }} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group">
                    <Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" />
@@ -774,8 +799,6 @@ function App() {
                    <Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" />
                    <span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span>
                 </button>
-                {/* Verborgen video input geactiveerd door het Snelcamera Video Icoontje */}
-                <input type="file" accept="video/*" capture="environment" ref={nativeVideoRef} style={{ display: 'none' }} onChange={handleNativeVideoUpload} />
               </div>
 
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
@@ -843,7 +866,7 @@ function App() {
                 </div>
               </div>
 
-              {/* MEDIA WEERGAVE (FOTO EN VIDEO) */}
+              {/* MEDIA WEERGAVE */}
               <div className="space-y-4 print:hidden">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-1">Media Documentatie ({activeProject.photos.length})</p>
                 {activeProject.photos.length === 0 ? <div className="py-12 border-2 border-dashed border-slate-200 rounded-3xl text-center text-slate-400 font-bold italic text-sm">Geen media in deze map.</div> : (
@@ -896,7 +919,7 @@ function App() {
         )}
       </main>
 
-      {/* --- ADD PROJECT MODAL MET AANGEPASTE KALENDER INPUT --- */}
+      {/* --- ADD PROJECT MODAL --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
@@ -971,11 +994,13 @@ function App() {
         </div>
       )}
 
-      {/* --- CAMERA VOLLEDIG SCHERM MET OUDE FOTO CAPTURE EN NATIVE VIDEO FUNCTIE --- */}
+      {/* --- CAMERA VOLLEDIG SCHERM (MET FOTO EN VIDEO KNOP) --- */}
       {isCameraOpen && (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
-            <span className="font-bold tracking-widest uppercase text-sm">Snelcamera</span>
+            <span className="font-bold tracking-widest uppercase text-sm">
+               {isRecording ? <span className="text-rose-500 animate-pulse flex items-center gap-2"><Square size={12} fill="currentColor"/> OPNEMEN...</span> : "Snelcamera"}
+            </span>
             <button onClick={closeOverlay} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
           <div className="flex-1 relative bg-black overflow-hidden">
@@ -983,15 +1008,19 @@ function App() {
           </div>
           <div className="h-32 bg-black flex items-center justify-center gap-8 pb-8 shrink-0 z-10">
              
-             <button onClick={takeFastPhoto} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+             <button onClick={takeFastPhoto} disabled={isRecording} className={`w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center ${isRecording ? 'opacity-50' : ''}`}>
                 <Camera size={32} className="text-slate-800" />
              </button>
              
-             {/* Opent native GSM video camera! */}
-             <button onClick={startNativeVideo} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-rose-100 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+             <button onClick={startRecording} disabled={isRecording} className={`w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-rose-100 active:scale-95 transition-all shadow-lg flex items-center justify-center ${isRecording ? 'opacity-50' : ''}`}>
                 <Video size={32} className="text-rose-600" />
              </button>
              
+             {isRecording && (
+                 <button onClick={stopRecording} className="absolute bottom-8 right-8 w-16 h-16 bg-rose-600 rounded-full border-4 border-rose-300 animate-pulse transition-all shadow-lg flex items-center justify-center">
+                    <Square size={24} className="text-white" fill="currentColor" />
+                 </button>
+             )}
           </div>
         </div>
       )}
@@ -1073,7 +1102,6 @@ function App() {
         </button>
       </div>
 
-      {/* Onzichtbare input voor Galerij media */}
       <input type="file" accept="image/*" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={handleMultipleUpload} />
       
       {notification && (
