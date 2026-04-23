@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Square, Maximize2, PlayCircle } from "lucide-react";
+import { Camera, Search, FolderOpen, ChevronLeft, Upload, CheckCircle, Calendar, Image as ImageIcon, Plus, Sparkles, FileText, Loader2, X, Wifi, WifiOff, Cloud, CloudOff, ListChecks, MessageSquare, Send, PenTool, Clock, Paperclip, AlertTriangle, Trash2, Mic, Printer, Eraser, Check, Settings, Video, Maximize2, PlayCircle } from "lucide-react";
 
 const DB_NAME = "KeukenAppDB_V4";
 const STORE_NAME = "projects";
@@ -35,7 +35,6 @@ const loadFromDB = async () => {
   } catch (e) { return null; }
 };
 
-// Hoge Kwaliteit Compressie (2400px)
 const compressImage = (base64Str, maxWidth = 2400, quality = 0.95) => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -187,14 +186,14 @@ function App() {
   const [isMagicLoading, setIsMagicLoading] = useState(false);
 
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [fullScreenMedia, setFullScreenMedia] = useState(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
   const magicUploadRef = useRef(null);
   const fileInputRef = useRef(null);
+  const nativeCameraRef = useRef(null); 
+  const nativeVideoRef = useRef(null); // Nieuwe ref speciaal voor video opnames
   const saveTimeoutRef = useRef(null);
 
   const activeProject = projects.find((p) => String(p.id) === String(selectedProjectId));
@@ -338,8 +337,8 @@ function App() {
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 3840 }, // Vraag 4K of hoogst haalbare
-          height: { ideal: 2160 }
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 }
         }
       }).then(stream => {
         if (!isMounted) {
@@ -361,9 +360,6 @@ function App() {
 
     return () => {
       isMounted = false;
-      if (isRecording && mediaRecorderRef.current) {
-         mediaRecorderRef.current.stop();
-      }
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
       } else if (streamRef.current) {
@@ -373,20 +369,17 @@ function App() {
     };
   }, [isCameraOpen]);
 
-  // --- SLIMME FOTO OPNEMER (PROBEERT ImageCapture API, ANDERS CANVAS) ---
   const takeFastPhoto = async () => {
-    if (!videoRef.current || !activeProject || isRecording) return;
+    if (!videoRef.current || !activeProject) return;
     
     triggerVibration(50); 
     
-    // Flits effect
     videoRef.current.style.opacity = 0.5;
     setTimeout(() => { videoRef.current.style.opacity = 1; }, 100);
 
     let base64Url = "";
 
     try {
-        // Poging 1: Raw Sensor Capture (Perfect voor Android)
         if (window.ImageCapture && streamRef.current) {
             const track = streamRef.current.getVideoTracks()[0];
             const imageCapture = new ImageCapture(track);
@@ -401,10 +394,8 @@ function App() {
             throw new Error("ImageCapture not supported");
         }
     } catch (err) {
-        // Poging 2: Video Frame Capture (Fallback voor iOS Safari)
         const video = videoRef.current;
         const canvas = document.createElement("canvas");
-        // Gebruik de werkelijke stream resolutie
         canvas.width = video.videoWidth || 1920;
         canvas.height = video.videoHeight || 1080;
         
@@ -423,59 +414,39 @@ function App() {
     });
   };
 
-  const startRecording = () => {
-    if (!streamRef.current || !activeProject) return;
-
-    triggerVibration([50, 50]); 
-
-    let mimeType = 'video/webm';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/mp4'; 
-    }
-
-    try {
-      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType });
-      mediaRecorderRef.current = mediaRecorder;
-      const chunks = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: mimeType });
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.onloadend = () => {
-          const base64Url = reader.result;
-          const newVideo = { 
-              id: Date.now().toString() + Math.random(), 
-              url: base64Url, 
-              timestamp: new Date().toLocaleString("nl-BE"), 
-              name: `Video-${Date.now().toString().slice(-4)}.mp4`, 
-              syncStatus: isOnline ? "synced" : "pending" 
-          };
-          setProjects(prevProjects => {
-            const updated = prevProjects.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newVideo, ...p.photos] } : p);
-            saveToDB(updated); return updated;
-          });
-          showNotification("🎥 Video opgeslagen!", "success");
-        };
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      showNotification("Video opnemen wordt niet ondersteund op dit toestel.", "error");
-    }
+  // --- NIEUW: START NATIVE VIDEO CAMERA DIRECT VANUIT SNELCAMERA ---
+  const startNativeVideo = () => {
+    triggerVibration([50, 50]);
+    nativeVideoRef.current?.click();
+    closeOverlay(); // Sluit de Snelcamera netjes af terwijl de GSM camera opent
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      triggerVibration([100]); 
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+  const handleNativeCameraUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file || !activeProject) return;
+
+    showNotification(`Media verwerken...`, "success");
+    
+    const reader = new FileReader();
+    const base64Url = await new Promise((resolve) => {
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+    
+    let newMedia;
+    if (file.type.startsWith("image/")) {
+        const compressedBase64 = await compressImage(base64Url, 2400, 0.95);
+        newMedia = { id: Date.now().toString() + Math.random(), url: compressedBase64, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" };
+    } else {
+        newMedia = { id: Date.now().toString() + Math.random(), url: base64Url, timestamp: new Date().toLocaleString("nl-BE"), name: file.name, syncStatus: isOnline ? "synced" : "pending" };
     }
+
+    const updated = projectsRef.current.map((p) => String(p.id) === String(activeProject.id) ? { ...p, photos: [newMedia, ...p.photos] } : p);
+    await saveToDB(updated); setProjects(updated);
+    event.target.value = null; 
+    
+    triggerVibration([50, 50]);
+    showNotification("✅ Media succesvol opgeslagen!", "success");
   };
 
   const handleMultipleUpload = async (event) => {
@@ -812,9 +783,27 @@ function App() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 print:hidden">
-                <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/camera`; }} className="flex flex-col items-center justify-center p-6 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group"><Camera size={32} className="mb-2 group-hover:scale-110 transition-transform" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Foto / Video (Snel)</span></button>
-                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-6 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group"><Upload size={32} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" /><span className="font-bold text-sm sm:text-base uppercase tracking-widest text-center">Uploaden (Meerdere)</span></button>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 print:hidden">
+                <button onClick={() => { triggerVibration(); window.location.hash = `project/${activeProject.id}/camera`; }} className="flex flex-col items-center justify-center p-5 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all shadow-md active:scale-95 group">
+                   <Camera size={28} className="mb-2 group-hover:scale-110 transition-transform" />
+                   <span className="font-bold text-xs uppercase tracking-widest text-center">Snelcamera</span>
+                </button>
+                
+                {/* De Native PRO Camera (Spreekt de originele gsm camera app aan) */}
+                <button onClick={() => nativeCameraRef.current?.click()} className="flex flex-col items-center justify-center p-5 bg-slate-800 text-white rounded-2xl hover:bg-slate-700 transition-all shadow-md active:scale-95 group relative overflow-hidden">
+                   <div className="absolute top-0 right-0 bg-rose-500 text-white text-[9px] font-black px-2 py-1 rounded-bl-lg">PRO</div>
+                   <Camera size={28} className="mb-2 group-hover:scale-110 transition-transform text-white" />
+                   <span className="font-bold text-xs uppercase tracking-widest text-center">GSM Camera</span>
+                </button>
+                
+                <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center p-5 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl hover:border-blue-300 hover:bg-blue-50 transition-all active:scale-95 group">
+                   <Upload size={28} className="mb-2 group-hover:scale-110 transition-transform text-slate-400" />
+                   <span className="font-bold text-xs uppercase tracking-widest text-center">Galerij</span>
+                </button>
+                
+                {/* Onzichtbare inputs voor native bestanden */}
+                <input type="file" accept="image/*,video/*" capture="environment" ref={nativeCameraRef} style={{ display: 'none' }} onChange={handleNativeCameraUpload} />
+                <input type="file" accept="video/*" capture="environment" ref={nativeVideoRef} style={{ display: 'none' }} onChange={handleNativeCameraUpload} />
               </div>
 
               <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
@@ -901,7 +890,6 @@ function App() {
                              <img src={ph.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 pointer-events-none" alt="Werf media" />
                           )}
                           
-                          {/* DUIDELIJKE VIDEO INDICATOR */}
                           {isVideo && (
                              <div className="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none">
                                 <PlayCircle className="text-white opacity-80 shadow-2xl" size={48} />
@@ -937,7 +925,7 @@ function App() {
         )}
       </main>
 
-      {/* --- ADD PROJECT MODAL MET AANGEPASTE KALENDER INPUT --- */}
+      {/* --- ADD PROJECT MODAL --- */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-in fade-in duration-200 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col">
@@ -1012,32 +1000,28 @@ function App() {
         </div>
       )}
 
-      {/* --- CAMERA VOLLEDIG SCHERM (MET FOTO EN VIDEO KNOP) --- */}
+      {/* --- CAMERA VOLLEDIG SCHERM --- */}
       {isCameraOpen && (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col animate-in fade-in duration-200">
           <div className="flex justify-between items-center p-4 bg-black text-white shrink-0 z-10">
-            <span className="font-bold tracking-widest uppercase text-sm">
-               {isRecording ? <span className="text-rose-500 animate-pulse flex items-center gap-2"><Square size={12} fill="currentColor"/> OPNEMEN...</span> : "Foto / Video Camera"}
-            </span>
+            <span className="font-bold tracking-widest uppercase text-sm">Snelcamera</span>
             <button onClick={closeOverlay} className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 transition-colors"><X size={24} /></button>
           </div>
           <div className="flex-1 relative bg-black overflow-hidden">
              <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover transition-opacity duration-100"></video>
           </div>
           <div className="h-32 bg-black flex items-center justify-center gap-8 pb-8 shrink-0 z-10">
-             <button onClick={takeFastPhoto} disabled={isRecording} className={`w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center ${isRecording ? 'opacity-50' : ''}`}>
+             
+             {/* Foto Maken via de Snelcamera */}
+             <button onClick={takeFastPhoto} className={`w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-slate-300 active:scale-95 transition-all shadow-lg flex items-center justify-center`}>
                 <Camera size={32} className="text-slate-800" />
              </button>
              
-             {!isRecording ? (
-                 <button onClick={startRecording} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-rose-100 active:scale-95 transition-all shadow-lg flex items-center justify-center">
-                    <Video size={32} className="text-rose-600" />
-                 </button>
-             ) : (
-                 <button onClick={stopRecording} className="w-20 h-20 bg-rose-600 rounded-full border-4 border-rose-300 animate-pulse transition-all shadow-lg flex items-center justify-center">
-                    <Square size={28} className="text-white" fill="currentColor" />
-                 </button>
-             )}
+             {/* Video Maken opent direct de NATIVE GSM camera voor hoogste kwaliteit */}
+             <button onClick={startNativeVideo} className="w-20 h-20 bg-white rounded-full border-4 border-slate-300 active:bg-rose-100 active:scale-95 transition-all shadow-lg flex items-center justify-center">
+                <Video size={32} className="text-rose-600" />
+             </button>
+             
           </div>
         </div>
       )}
