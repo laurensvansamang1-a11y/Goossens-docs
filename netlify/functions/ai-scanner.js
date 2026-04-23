@@ -1,24 +1,31 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("API_KEY_MISSING");
-
     const genAI = new GoogleGenerativeAI(apiKey);
+
+    // STAP 1: Vraag aan Google welke modellen beschikbaar zijn voor jouw sleutel
+    // We gebruiken v1beta omdat die de meest complete lijst geeft
+    const responseModels = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const modelsData = await responseModels.json();
     
-    /**
-     * DE FIX: We gebruiken nu exact "gemini-1.5-flash".
-     * Zonder "-latest", omdat de stabiele v1 API dat niet herkent.
-     */
-    const model = genAI.getGenerativeModel(
-      { model: "gemini-1.5-flash" }, 
-      { apiVersion: "v1" }
-    );
+    // We zoeken een werkend model in jouw lijst
+    const availableModels = modelsData.models || [];
+    const hasFlash = availableModels.find(m => m.name.includes("gemini-1.5-flash"));
+    const hasPro = availableModels.find(m => m.name.includes("gemini-1.5-pro"));
+
+    // Bepaal de exacte modelnaam die Google van jou verwacht
+    // We geven voorkeur aan flash, dan pro, anders de eerste uit de lijst
+    const targetModel = hasFlash ? hasFlash.name : (hasPro ? hasPro.name : availableModels[0]?.name);
+
+    if (!targetModel) {
+       throw new Error("Geen enkel model beschikbaar voor deze API key. Check je Google AI Studio.");
+    }
+
+    // STAP 2: Initialiseer het model met de exacte naam die Google ons net gaf
+    // We laten de apiVersion even weg zodat de library zelf de beste kiest
+    const model = genAI.getGenerativeModel({ model: targetModel.replace('models/', '') });
 
     const { promptText, mimeType, base64Data } = JSON.parse(event.body);
 
@@ -35,18 +42,14 @@ exports.handler = async (event) => {
     const response = await result.response;
     return {
       statusCode: 200,
-      headers: { 
-        "Content-Type": "application/json", 
-        "Access-Control-Allow-Origin": "*" 
-      },
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({ result: response.text() }),
     };
 
   } catch (error) {
-    // We sturen de specifieke foutmelding door naar de app
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: `Google AI status: ${error.message}` }),
+      body: JSON.stringify({ error: `Diagnose: ${error.message}` }),
     };
   }
 };
