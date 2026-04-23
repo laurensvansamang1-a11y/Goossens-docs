@@ -12,12 +12,11 @@ exports.handler = async (event) => {
     const genAI = new GoogleGenerativeAI(apiKey);
     
     /**
-     * FIX: We gebruiken 'gemini-1.5-flash-latest'. 
-     * Sommige regio's in Google Cloud herkennen 'gemini-1.5-flash' (zonder suffix) 
-     * niet op de v1 API, maar 'latest' werkt altijd.
+     * DE FIX: We gebruiken nu exact "gemini-1.5-flash".
+     * Zonder "-latest", omdat de stabiele v1 API dat niet herkent.
      */
     const model = genAI.getGenerativeModel(
-      { model: "gemini-1.5-flash-latest" }, 
+      { model: "gemini-1.5-flash" }, 
       { apiVersion: "v1" }
     );
 
@@ -36,11 +35,15 @@ exports.handler = async (event) => {
     const response = await result.response;
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: { 
+        "Content-Type": "application/json", 
+        "Access-Control-Allow-Origin": "*" 
+      },
       body: JSON.stringify({ result: response.text() }),
     };
 
   } catch (error) {
+    // We sturen de specifieke foutmelding door naar de app
     return {
       statusCode: 500,
       body: JSON.stringify({ error: `Google AI status: ${error.message}` }),
