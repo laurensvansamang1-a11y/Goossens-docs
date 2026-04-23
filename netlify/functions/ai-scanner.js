@@ -11,10 +11,13 @@ exports.handler = async (event) => {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // We dwingen hier de stabiele API-versie af. 
-    // Dit is vaak de oplossing voor de 'location not supported' fout op cloud-servers.
+    /**
+     * FIX: We gebruiken 'gemini-1.5-flash-latest'. 
+     * Sommige regio's in Google Cloud herkennen 'gemini-1.5-flash' (zonder suffix) 
+     * niet op de v1 API, maar 'latest' werkt altijd.
+     */
     const model = genAI.getGenerativeModel(
-      { model: "gemini-1.5-flash" },
+      { model: "gemini-1.5-flash-latest" }, 
       { apiVersion: "v1" }
     );
 
@@ -38,10 +41,9 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    console.error("Gedetailleerde Fout:", error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: `Locatie/Toegangsfout: ${error.message}` }),
+      body: JSON.stringify({ error: `Google AI status: ${error.message}` }),
     };
   }
 };
